@@ -1,7 +1,11 @@
 <<<<<<< HEAD
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+<p align="center">
+  <img
+    src="./Sentinel%20AI%20Cyber%20Defense%20Dashboard.png"
+    alt="SENTINEL AI Cyber Defense Dashboard"
+    width="100%"
+  />
+</p>
 
 # 🛡️ SENTINEL AI
 ### AI-Powered Web Threat Detection & Digital Trust Intelligence
