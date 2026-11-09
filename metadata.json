@@ -1,0 +1,6 @@
+{
+  "name": "SENTINEL AI",
+  "description": "AI-Powered Web Threat Detection & Digital Trust Intelligence SOC Dashboard for identifying phishing, malicious infrastructure, and digital scams.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

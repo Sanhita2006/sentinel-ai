@@ -1,0 +1,1 @@
+        # Removed local heuristic analysis - now using backend API results only
