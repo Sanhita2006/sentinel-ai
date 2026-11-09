@@ -13,11 +13,13 @@ import {
   Bot,
   Settings,
   Shield,
-  ChevronLeft,
-  ChevronRight,
-  ExternalLink,
+  ChevronsLeft,
+  ChevronsRight,
+  FlaskConical,
+  X,
 } from 'lucide-react';
 import { PageId } from '../../types';
+import { SAMPLE_INVESTIGATIONS } from '../../data/mockData';
 
 interface SidebarProps {
   activePage: PageId;
@@ -39,17 +41,17 @@ interface NavSection {
   }>;
 }
 
-const NAV_SECTIONS: NavSection[] = [
+export const NAV_SECTIONS: NavSection[] = [
   {
-    title: 'OPERATIONS',
+    title: 'Operations',
     items: [
       { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
       { id: 'website-investigation', label: 'Website Investigation', icon: Search },
-      { id: 'history', label: 'Investigation History', icon: History, badge: '7 New' },
+      { id: 'history', label: 'Investigation History', icon: History, badge: String(SAMPLE_INVESTIGATIONS.length) },
     ],
   },
   {
-    title: 'DETECTION ENGINES',
+    title: 'Detection Engines',
     items: [
       { id: 'phishing-detection', label: 'Phishing Detection', icon: Fish },
       { id: 'tls-certificate', label: 'TLS Intelligence', icon: Lock },
@@ -58,17 +60,17 @@ const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
-    title: 'INTELLIGENCE & TRUST',
+    title: 'Intelligence & Trust',
     items: [
-      { id: 'threat-intelligence', label: 'Threat Intelligence', icon: Globe2, badge: 'Live Feed' },
+      { id: 'threat-intelligence', label: 'Threat Intelligence', icon: Globe2, badge: 'Demo' },
       { id: 'blockchain-verification', label: 'Blockchain Verification', icon: Blocks },
       { id: 'reports', label: 'Reports & Compliance', icon: FileText },
     ],
   },
   {
-    title: 'COPILOT & SYSTEM',
+    title: 'Copilot & System',
     items: [
-      { id: 'ai-assistant', label: 'AI Security Assistant', icon: Bot, badge: 'Gemini' },
+      { id: 'ai-assistant', label: 'AI Security Assistant', icon: Bot, badge: 'Beta' },
       { id: 'settings', label: 'Settings', icon: Settings },
     ],
   },
@@ -83,69 +85,75 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onCloseMobile,
   onOpenDemoNotice,
 }) => {
+  // On mobile the drawer is always shown expanded.
+  const expanded = isOpen || isMobileOpen;
+
   return (
     <>
       {/* Mobile Backdrop */}
       {isMobileOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm lg:hidden"
-          onClick={onCloseMobile}
-        />
+        <div className="fixed inset-0 z-40 bg-soc-bg/80 lg:hidden print:hidden" onClick={onCloseMobile} />
       )}
 
-      {/* Sidebar Container */}
       <aside
-        className={`fixed top-0 bottom-0 left-0 z-50 flex flex-col bg-[#070b15] border-r border-slate-800/80 transition-all duration-300 ${
-          isOpen ? 'w-64' : 'w-20'
+        className={`fixed inset-y-0 left-0 z-50 flex flex-col border-r border-soc-line bg-soc-surface transition-[width,transform] duration-200 print:hidden ${
+          isOpen ? 'w-60' : 'w-60 lg:w-16'
         } ${isMobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}
       >
-        {/* Brand Area */}
-        <div className="h-16 flex items-center justify-between px-4 border-b border-slate-800/80 bg-[#060913]">
-          <div
-            className="flex items-center gap-3 cursor-pointer overflow-hidden"
+        {/* Brand */}
+        <div className="flex h-14 items-center justify-between gap-2 border-b border-soc-line px-3">
+          <button
+            className="flex min-w-0 items-center gap-2.5 text-left"
             onClick={() => {
               onNavigate('dashboard');
               onCloseMobile();
             }}
           >
-            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-950/60 shrink-0">
-              <Shield className="w-5 h-5 text-black" />
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded border border-soc-forest-2 bg-soc-forest">
+              <Shield className="h-4 w-4 text-soc-accent-hi" />
             </div>
-            {isOpen && (
-              <div className="flex flex-col min-w-0">
-                <span className="text-sm font-bold tracking-wider text-white whitespace-nowrap">
-                  SENTINEL <span className="text-cyan-400">AI</span>
-                </span>
-                <span className="text-[10px] text-slate-400 uppercase tracking-widest truncate">
+            {expanded && (
+              <div className="min-w-0 leading-tight">
+                <div className="text-[13px] font-semibold tracking-wide text-soc-text">
+                  SENTINEL <span className="text-soc-accent">AI</span>
+                </div>
+                <div className="truncate font-mono text-[9.5px] uppercase tracking-[0.14em] text-soc-muted">
                   Cyber Trust SOC
-                </span>
+                </div>
               </div>
             )}
-          </div>
+          </button>
 
           <button
             onClick={onToggle}
-            className="hidden lg:flex items-center justify-center w-7 h-7 rounded-md text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors"
+            className="hidden h-7 w-7 items-center justify-center rounded text-soc-muted hover:bg-soc-raised hover:text-soc-text lg:flex"
             title={isOpen ? 'Collapse sidebar' : 'Expand sidebar'}
+            aria-label={isOpen ? 'Collapse sidebar' : 'Expand sidebar'}
           >
-            {isOpen ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+            {isOpen ? <ChevronsLeft className="h-4 w-4" /> : <ChevronsRight className="h-4 w-4" />}
+          </button>
+          <button
+            onClick={onCloseMobile}
+            className="flex h-7 w-7 items-center justify-center rounded text-soc-muted hover:bg-soc-raised hover:text-soc-text lg:hidden"
+            aria-label="Close navigation"
+          >
+            <X className="h-4 w-4" />
           </button>
         </div>
 
-        {/* Navigation Links */}
-        <div className="flex-1 overflow-y-auto px-3 py-4 space-y-6">
+        {/* Navigation */}
+        <nav className="flex-1 space-y-4 overflow-y-auto px-2 py-3" aria-label="Primary">
           {NAV_SECTIONS.map((section) => (
-            <div key={section.title} className="space-y-1">
-              {isOpen && (
-                <div className="px-3 text-[10px] font-semibold tracking-wider text-slate-500 uppercase font-mono">
-                  {section.title}
-                </div>
+            <div key={section.title}>
+              {expanded ? (
+                <div className="soc-label px-2.5 pb-1.5">{section.title}</div>
+              ) : (
+                <div className="mx-auto mb-1.5 h-px w-6 bg-soc-line" />
               )}
-              <div className="space-y-1 pt-1">
+              <div className="space-y-px">
                 {section.items.map((item) => {
                   const Icon = item.icon;
                   const isActive = activePage === item.id;
-
                   return (
                     <button
                       key={item.id}
@@ -153,28 +161,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         onNavigate(item.id);
                         onCloseMobile();
                       }}
-                      title={!isOpen ? item.label : undefined}
-                      className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs font-medium transition-all group text-left ${
+                      title={!expanded ? item.label : undefined}
+                      aria-current={isActive ? 'page' : undefined}
+                      className={`group relative flex h-8 w-full items-center gap-2.5 rounded px-2.5 text-left text-[12.5px] transition-colors ${
                         isActive
-                          ? 'bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 shadow-[0_0_12px_rgba(6,182,212,0.12)]'
-                          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 border border-transparent'
-                      }`}
+                          ? 'bg-soc-forest/70 text-soc-text'
+                          : 'text-soc-text-2 hover:bg-soc-raised hover:text-soc-text'
+                      } ${!expanded ? 'justify-center px-0' : ''}`}
                     >
+                      {isActive && <span className="absolute inset-y-1 left-0 w-[2px] rounded-r bg-soc-accent" />}
                       <Icon
-                        className={`w-4 h-4 shrink-0 transition-colors ${
-                          isActive ? 'text-cyan-400' : 'text-slate-400 group-hover:text-cyan-400'
+                        className={`h-4 w-4 shrink-0 ${
+                          isActive ? 'text-soc-accent-hi' : 'text-soc-muted group-hover:text-soc-text-2'
                         }`}
                       />
-
-                      {isOpen && (
-                        <div className="flex-1 flex items-center justify-between min-w-0">
-                          <span className="truncate">{item.label}</span>
+                      {expanded && (
+                        <>
+                          <span className="flex-1 truncate">{item.label}</span>
                           {item.badge && (
-                            <span className="px-1.5 py-0.5 text-[9px] font-mono rounded bg-slate-800 text-slate-300 border border-slate-700">
+                            <span className="rounded-[3px] border border-soc-line-strong bg-soc-well px-1.5 font-mono text-[9.5px] leading-4 text-soc-muted">
                               {item.badge}
                             </span>
                           )}
-                        </div>
+                        </>
                       )}
                     </button>
                   );
@@ -182,36 +191,37 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
             </div>
           ))}
-        </div>
+        </nav>
 
-        {/* Footer info: Demo disclaimer pill & Version */}
-        <div className="p-3 border-t border-slate-800/80 bg-[#060912]">
-          {isOpen ? (
+        {/* Footer */}
+        <div className="border-t border-soc-line p-2.5">
+          {expanded ? (
             <div className="space-y-2">
               <button
                 onClick={onOpenDemoNotice}
-                className="w-full text-left p-2 rounded-lg bg-amber-950/30 hover:bg-amber-950/50 border border-amber-500/30 transition-colors"
+                className="w-full rounded border border-sev-medium/30 bg-sev-medium/[0.06] px-2.5 py-2 text-left transition-colors hover:bg-sev-medium/10"
               >
-                <div className="flex items-center justify-between text-[11px] font-semibold text-amber-300">
-                  <span>DEMO DATA ACTIVE</span>
-                  <ExternalLink className="w-3 h-3 text-amber-400" />
+                <div className="flex items-center gap-1.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-sev-medium">
+                  <FlaskConical className="h-3 w-3" />
+                  Demo data active
                 </div>
-                <p className="text-[10px] text-amber-200/80 mt-0.5 leading-snug">
-                  Hackathon Prototype. Simulated threat scores.
+                <p className="mt-0.5 text-[10.5px] leading-snug text-soc-text-2">
+                  Hackathon prototype. Sample panels use simulated threat scores.
                 </p>
               </button>
-              <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono px-1">
-                <span>SOC BUILD v1.0.4</span>
-                <span className="text-emerald-400 font-semibold">ALL SYSTEMS NOMINAL</span>
+              <div className="flex items-center justify-between px-1 font-mono text-[9.5px] uppercase tracking-wider text-soc-muted">
+                <span>SOC build v1.0.4</span>
+                <span>UI only</span>
               </div>
             </div>
           ) : (
             <button
               onClick={onOpenDemoNotice}
-              className="w-full flex items-center justify-center p-2 rounded-lg bg-amber-950/40 border border-amber-500/30 text-amber-400 hover:text-amber-300"
-              title="Demo Data Notice"
+              className="flex w-full items-center justify-center rounded border border-sev-medium/30 bg-sev-medium/[0.06] py-1.5 text-sev-medium"
+              title="Demo data notice"
+              aria-label="Demo data notice"
             >
-              <span className="text-[10px] font-bold font-mono">DEMO</span>
+              <FlaskConical className="h-3.5 w-3.5" />
             </button>
           )}
         </div>

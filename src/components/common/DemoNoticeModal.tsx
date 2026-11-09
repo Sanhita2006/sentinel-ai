@@ -1,5 +1,5 @@
-import React from 'react';
-import { AlertCircle, ShieldAlert, CheckCircle2, X } from 'lucide-react';
+import React, { useEffect } from 'react';
+import { AlertTriangle, ShieldAlert, CheckCircle2, X, Info } from 'lucide-react';
 import { DEMO_DATA_DISCLAIMER } from '../../data/mockData';
 
 interface DemoNoticeModalProps {
@@ -8,75 +8,86 @@ interface DemoNoticeModalProps {
 }
 
 export const DemoNoticeModal: React.FC<DemoNoticeModalProps> = ({ isOpen, onClose }) => {
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
+  const active = [
+    'Complete 12-page SOC dashboard and investigation interface',
+    'Client-side lexical parser for homoglyph / punycode inspection',
+    'Website investigation request to the backend /api/investigate endpoint',
+    'Scam message analysis via the backend /api/scam-analysis endpoint (local Ollama model)',
+    'Blockchain ledger verification simulator over sample SHA-256 records',
+    'AI Security Assistant interface with scripted local responses (model connection not wired in this build)',
+  ];
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-      <div className="relative w-full max-w-xl bg-[#0b101e] border border-cyan-500/30 rounded-xl p-6 shadow-2xl shadow-cyan-950/50">
-        <div className="flex items-start justify-between gap-4 mb-4">
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-soc-bg/80 p-4 backdrop-blur-[2px]"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="demo-notice-title"
+      onClick={onClose}
+    >
+      <div
+        className="soc-panel w-full max-w-xl overflow-hidden shadow-2xl shadow-black/60"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="flex items-start justify-between gap-4 border-b border-soc-line px-5 py-4">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-lg bg-cyan-950/60 border border-cyan-500/30 text-cyan-400">
-              <ShieldAlert className="w-6 h-6" />
+            <div className="flex h-8 w-8 items-center justify-center rounded border border-soc-forest-2 bg-soc-forest/60 text-soc-accent-hi">
+              <ShieldAlert className="h-4 w-4" />
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-white">Prototype Transparency & Demo Data Notice</h3>
-              <p className="text-xs text-slate-400">Cybersecurity Hackathon Compliance & Ethics Disclosure</p>
+              <h3 id="demo-notice-title" className="text-sm font-semibold text-soc-text">
+                Prototype transparency &amp; demo data notice
+              </h3>
+              <p className="text-[11px] text-soc-muted">Cybersecurity hackathon compliance &amp; ethics disclosure</p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1 rounded-md text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-            aria-label="Close modal"
-          >
-            <X className="w-5 h-5" />
+          <button onClick={onClose} className="soc-btn soc-btn-ghost h-7 w-7 px-0" aria-label="Close notice">
+            <X className="h-4 w-4" />
           </button>
-        </div>
+        </header>
 
-        <div className="space-y-4 text-sm text-slate-300">
-          <div className="p-3.5 rounded-lg bg-amber-950/30 border border-amber-500/30 text-amber-200 flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 shrink-0 text-amber-400 mt-0.5" />
-            <p className="text-xs leading-relaxed">{DEMO_DATA_DISCLAIMER}</p>
+        <div className="space-y-4 px-5 py-4 text-xs text-soc-text-2">
+          <div className="flex items-start gap-2.5 rounded border border-sev-medium/35 bg-sev-medium/[0.07] px-3 py-2.5">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-sev-medium" />
+            <p className="leading-relaxed">{DEMO_DATA_DISCLAIMER}</p>
           </div>
 
-          <div className="space-y-2">
-            <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-400">What is active in this build:</h4>
-            <ul className="space-y-1.5 text-xs text-slate-300">
-              <li className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>Complete responsive 12-page SOC dashboard & investigation UI</span>
-              </li>
-              <li className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>Real-time client-side lexical parser for homoglyph / punycode spoof detection</span>
-              </li>
-              <li className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>Interactive URL & email scam analyzer with simulated pipeline stages</span>
-              </li>
-              <li className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>Blockchain Merkle verification simulator with SHA-256 integrity proofs</span>
-              </li>
-              <li className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-cyan-400 shrink-0" />
-                <span>Gemini 2.5/Flash AI Copilot integration architecture ready for server routes</span>
-              </li>
+          <div>
+            <h4 className="soc-label mb-2">Active in this build</h4>
+            <ul className="space-y-1.5">
+              {active.map((item) => (
+                <li key={item} className="flex items-start gap-2">
+                  <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-soc-accent" />
+                  <span>{item}</span>
+                </li>
+              ))}
             </ul>
           </div>
 
-          <div className="text-xs text-slate-400 pt-2 border-t border-slate-800">
-            Target domains evaluated in this dashboard are curated representative test patterns to illustrate detection metrics without executing disruptive active probes.
+          <div className="flex items-start gap-2 border-t border-soc-line pt-3 text-soc-muted">
+            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>
+              Target domains in sample views are curated representative patterns used to illustrate detection
+              metrics without executing disruptive active probes. Panels marked <b className="text-sev-medium">Demo</b>{' '}
+              or <b className="text-sev-medium">Simulated</b> are not live telemetry.
+            </span>
           </div>
         </div>
 
-        <div className="mt-6 flex justify-end">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-xs font-medium text-black bg-cyan-400 hover:bg-cyan-300 rounded-lg transition-colors font-semibold"
-          >
-            Acknowledge & Continue
+        <footer className="flex justify-end border-t border-soc-line px-5 py-3">
+          <button onClick={onClose} className="soc-btn soc-btn-primary">
+            Acknowledge &amp; continue
           </button>
-        </div>
+        </footer>
       </div>
     </div>
   );

@@ -1,20 +1,21 @@
 import React, { useState } from 'react';
 import {
   MailWarning,
-  Mail,
-  MessageSquare,
   Send,
-  AlertTriangle,
   CheckCircle2,
   XCircle,
-  FileText,
-  ExternalLink,
-  ShieldAlert,
-  Sparkles,
   Link as LinkIcon,
+  Brain,
+  UserX,
+  AlertTriangle,
+  MinusCircle,
+  Loader2,
 } from 'lucide-react';
 import { SAMPLE_SCAM_MESSAGES } from '../data/mockData';
-import { StatusBadge } from '../components/common/StatusBadge';
+import { PageHeader, Panel, DataTag, Notice, EmptyState, Segmented } from '../components/ui/Soc';
+import { SEVERITY_STYLES, normalizeUrgency, urgencySeverity } from '../lib/severity';
+
+const FINANCIAL_PATTERN = /financ|payment|gift ?card|wire|bank|credential|password|ssn|social security|fee|crypto/i;
 
 export const ScamMessageAnalysisPage: React.FC = () => {
   const [selectedSampleId, setSelectedSampleId] = useState<string>('scam-email-1');
@@ -30,6 +31,7 @@ export const ScamMessageAnalysisPage: React.FC = () => {
     extractedLinks: Array<{ url: string; status: string }>;
     headerAuthStatus: string;
   }>(null);
+  const [modelUsed, setModelUsed] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const handleSelectSample = (sample: typeof SAMPLE_SCAM_MESSAGES[0]) => {
@@ -60,12 +62,23 @@ export const ScamMessageAnalysisPage: React.FC = () => {
       });
 
       if (!response.ok) {
-        throw new Error('Analysis failed');
+        // Surface the backend's own error message when it provides one.
+        const body = await response.json().catch(() => null);
+        throw new Error(
+          body && typeof body.error === 'string' && body.error
+            ? `Analysis failed (HTTP ${response.status}): ${body.error}`
+            : `Analysis failed (HTTP ${response.status})`
+        );
       }
 
       const data = await response.json();
       if (data.success && data.analysis) {
         setAnalysisResult(data.analysis);
+        setModelUsed(typeof data.modelUsed === 'string' ? data.modelUsed : null);
+      } else {
+        throw new Error(
+          typeof data?.error === 'string' && data.error ? data.error : 'The backend returned an unexpected response.'
+        );
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred while analyzing the message');
@@ -74,232 +87,263 @@ export const ScamMessageAnalysisPage: React.FC = () => {
     }
   };
 
-  // Remove local heuristic analysis - all results come from backend API
+  // Derived, case-insensitive interpretation of the backend result.
+  const urgency = analysisResult ? normalizeUrgency(analysisResult.urgencyLevel) : 'unknown';
+  const urgencySev = urgencySeverity(analysisResult?.urgencyLevel);
+  const urgencyStyle = SEVERITY_STYLES[urgencySev];
+  const isUrgent = urgency === 'high' || urgency === 'critical';
+  const tactics = analysisResult?.manipulationTactics ?? [];
+  const hasFinancial = tactics.some((t) => FINANCIAL_PATTERN.test(t));
+  const headerAuth = String(analysisResult?.headerAuthStatus ?? '').trim();
+  const headerAuthFailed = headerAuth.toLowerCase() === 'fail' || headerAuth.toLowerCase() === 'failed';
+  const headerAuthEvaluated = headerAuth !== '' && !/not provided|n\/a|none|unknown/i.test(headerAuth);
 
+  const classificationTitle = !analysisResult
+    ? ''
+    : urgency === 'critical'
+    ? 'Critical-urgency social engineering indicators'
+    : urgency === 'high'
+    ? 'High-urgency social engineering indicators'
+    : urgency === 'moderate'
+    ? 'Moderate manipulation indicators'
+    : urgency === 'low'
+    ? 'Low-urgency message'
+    : 'Urgency not classified';
+
+  const linkTone = (status: string) => {
+    const s = status.toLowerCase();
+    if (/flagged|deceptive|malicious|phish/.test(s)) return 'border-sev-critical/35 bg-sev-critical/10 text-sev-critical';
+    if (/suspicious/.test(s)) return 'border-sev-medium/35 bg-sev-medium/10 text-sev-medium';
+    if (/^clean|^safe|benign/.test(s)) return 'border-sev-clean/35 bg-sev-clean/10 text-sev-clean';
+    return 'border-soc-line-strong bg-soc-raised text-soc-text-2';
+  };
+
+  const triggerRows: Array<{ title: string; detail: string; state: 'bad' | 'ok' | 'na' }> = [
+    {
+      title: 'Manufactured time pressure & urgency',
+      detail: !analysisResult
+        ? 'Awaiting analysis.'
+        : isUrgent
+        ? `Model classified urgency as ${analysisResult.urgencyLevel}. Artificial deadlines are designed to induce panic.`
+        : `Model classified urgency as ${analysisResult.urgencyLevel || 'unclassified'}.`,
+      state: !analysisResult ? 'na' : isUrgent ? 'bad' : 'ok',
+    },
+    {
+      title: 'Coercive financial / credential demand',
+      detail: !analysisResult
+        ? 'Awaiting analysis.'
+        : hasFinancial
+        ? 'At least one identified tactic references payment, credentials or financial transfer.'
+        : 'No financial or credential tactic was identified.',
+      state: !analysisResult ? 'na' : hasFinancial ? 'bad' : 'ok',
+    },
+    {
+      title: 'SPF / DKIM / DMARC authentication',
+      detail: !analysisResult
+        ? 'Awaiting analysis.'
+        : headerAuthFailed
+        ? 'Header authentication reported as failed.'
+        : headerAuthEvaluated
+        ? `Header authentication: ${headerAuth}.`
+        : `Not evaluated by the backend (${headerAuth || 'no value'}).`,
+      state: !analysisResult ? 'na' : headerAuthFailed ? 'bad' : headerAuthEvaluated ? 'ok' : 'na',
+    },
+  ];
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="p-6 rounded-xl bg-[#090e1c] border border-cyan-500/20 shadow-[0_0_20px_rgba(6,182,212,0.05)]">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2">
-              <div className="p-2 rounded-lg bg-cyan-950/60 border border-cyan-500/30 text-cyan-400">
-                <MailWarning className="w-5 h-5" />
-              </div>
-              <h2 className="text-xl font-bold text-white tracking-tight">
-                Suspicious Email &amp; Message Scam Analysis
-              </h2>
-            </div>
-            <p className="text-xs md:text-sm text-slate-400 mt-2 max-w-3xl leading-relaxed">
-              Detect social engineering manipulation, coercive urgency triggers, spoofed email headers (SPF/DKIM/DMARC), and deceptive phishing links.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-mono text-slate-400">Target Vector:</span>
-            <div className="flex items-center gap-1 p-1 bg-[#050811] rounded-lg border border-slate-800 text-xs font-mono">
-              <button
-                onClick={() => setActiveChannel('email')}
-                className={`px-2.5 py-1 rounded transition-colors ${
-                  activeChannel === 'email' ? 'bg-cyan-500/20 text-cyan-300 font-bold' : 'text-slate-400'
-                }`}
-              >
-                Email
-              </button>
-              <button
-                onClick={() => setActiveChannel('sms')}
-                className={`px-2.5 py-1 rounded transition-colors ${
-                  activeChannel === 'sms' ? 'bg-cyan-500/20 text-cyan-300 font-bold' : 'text-slate-400'
-                }`}
-              >
-                SMS
-              </button>
-              <button
-                onClick={() => setActiveChannel('chat')}
-                className={`px-2.5 py-1 rounded transition-colors ${
-                  activeChannel === 'chat' ? 'bg-cyan-500/20 text-cyan-300 font-bold' : 'text-slate-400'
-                }`}
-              >
-                Chat
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Quick Sample Selector */}
-        <div className="mt-4 pt-3 border-t border-slate-800/80 flex flex-wrap items-center gap-2 text-xs">
-          <span className="text-slate-500 font-medium flex items-center gap-1">
-            <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-            Load Sample Threat:
-          </span>
+    <div className="soc-page">
+      <PageHeader
+        icon={MailWarning}
+        title="Suspicious email & message scam analysis"
+        description="Detect social-engineering manipulation, coercive urgency triggers, spoofed email headers and deceptive links."
+        actions={
+          <>
+            <span className="soc-label">Target vector</span>
+            <Segmented
+              ariaLabel="Message channel"
+              value={activeChannel}
+              onChange={setActiveChannel}
+              options={[
+                { value: 'email', label: 'Email' },
+                { value: 'sms', label: 'SMS' },
+                { value: 'chat', label: 'Chat' },
+              ]}
+            />
+          </>
+        }
+      >
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="soc-label mr-1">Load sample threat</span>
           {SAMPLE_SCAM_MESSAGES.map((s) => (
             <button
               key={s.id}
+              title={s.snippet}
               onClick={() => handleSelectSample(s)}
-              className={`px-3 py-1 rounded-lg border font-mono text-[11px] transition-colors ${
-                selectedSampleId === s.id
-                  ? 'bg-cyan-500/15 border-cyan-500/40 text-cyan-300 font-bold'
-                  : 'bg-[#060a14] border-slate-800 text-slate-300 hover:border-slate-700'
-              }`}
+              data-active={selectedSampleId === s.id}
+              className="soc-chip hover:border-soc-forest-2 hover:text-soc-text data-[active=true]:border-soc-forest-2 data-[active=true]:bg-soc-forest/60 data-[active=true]:text-soc-text"
             >
               {s.title}
             </button>
           ))}
         </div>
-      </div>
+      </PageHeader>
 
-      {/* 2-Column Interface: Input Pane & Analysis Results Pane */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Left: Raw Text Area */}
-        <div className="p-6 rounded-xl bg-[#090e1c] border border-slate-800 space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">
-              Message Payload &amp; Header Input
-            </h3>
-            <span className="text-xs text-slate-400 font-mono">
-              {customText.length} characters
-            </span>
-          </div>
-
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        {/* Input */}
+        <Panel
+          title="Message payload & header input"
+          actions={<span className="font-mono text-[11px] tabular-nums text-soc-muted">{customText.length} chars</span>}
+        >
           <textarea
-            rows={14}
+            rows={16}
             value={customText}
             onChange={(e) => setCustomText(e.target.value)}
+            aria-label="Message to analyze"
             placeholder="Paste suspicious raw email headers, body text, SMS smishing string, or chat logs here..."
-            className="w-full p-4 rounded-lg bg-[#050811] border border-slate-800 focus:border-cyan-400 focus:outline-none font-mono text-xs text-slate-200 placeholder-slate-600 leading-relaxed resize-y"
+            className="soc-input resize-y leading-relaxed"
           />
-
-          <div className="flex items-center justify-between pt-2">
-            <button
-              onClick={() => setCustomText('')}
-              className="text-xs text-slate-400 hover:text-slate-200"
-            >
+          <div className="mt-3 flex items-center justify-between gap-2">
+            <button onClick={() => setCustomText('')} className="soc-btn soc-btn-ghost">
               Clear input
             </button>
-
-            <button
-              onClick={handleRunAnalysis}
-              disabled={!customText.trim() || isScanning}
-              className="px-5 py-2.5 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-black font-semibold text-xs md:text-sm flex items-center gap-2 transition-all disabled:opacity-50"
-            >
-              <Send className="w-4 h-4" />
-              <span>{isScanning ? 'Parsing Indicators...' : 'Evaluate Scam Signatures'}</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Right: Heuristic & Social Engineering Analysis */}
-        <div className="space-y-6">
-          {/* Scam Verdict Card */}
-          <div className="p-6 rounded-xl bg-[#150a10] border border-rose-500/40 space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-mono text-rose-300 uppercase font-bold tracking-wider">
-                    Threat Classification
-                  </span>
-                  <span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-cyan-950/60 text-cyan-300 border border-cyan-500/40">
-                    Backend API Analysis
-                  </span>
-                </div>
-                <h4 className="text-lg font-bold text-white mt-0.5">
-                  High-Confidence Social Engineering Scam
-                </h4>
-              </div>
-              <div className="text-right font-mono">
-                <span className="text-[10px] text-slate-400 uppercase">Scam Confidence</span>
-                <div className="text-2xl font-bold text-rose-400">{analysisResult && analysisResult.confidenceScore !== undefined ? `${analysisResult.confidenceScore}%` : 'N/A'}</div>
-              </div>
+            <div className="flex items-center gap-2">
+              <DataTag kind="local" label="POST /api/scam-analysis" />
+              <button onClick={handleRunAnalysis} disabled={!customText.trim() || isScanning} className="soc-btn soc-btn-primary">
+                {isScanning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                {isScanning ? 'Parsing indicators…' : 'Evaluate scam signatures'}
+              </button>
             </div>
-
-            <p className="text-xs text-slate-300 leading-relaxed">
-              This message exhibits hallmark hallmarks of weaponized urgency and impersonation designed to compel rash user action before rational verification.
-            </p>
           </div>
-
-          {/* Social Engineering Triggers Checklist */}
-          <div className="p-6 rounded-xl bg-[#090e1c] border border-slate-800 space-y-4">
-            <h4 className="text-sm font-bold text-white uppercase tracking-wider font-mono">
-              Behavioral &amp; Psychological Triggers
-            </h4>
-
-            <div className="space-y-3 text-xs">
-              <div className="p-3 rounded-lg bg-[#060a14] border border-slate-800 flex items-start justify-between">
-                <div>
-                  <span className="font-bold text-white">Manufactured Time Pressure &amp; Urgency</span>
-                  <p className="text-slate-400 text-[11px] mt-0.5">
-                    {analysisResult && analysisResult.urgencyLevel === "high"
-                      ? 'Detected artificial deadline ("2 hours", "immediate action") designed to induce panic.'
-                      : 'No explicit artificial deadline detected.'}
-                  </p>
-                </div>
-                {analysisResult && analysisResult.urgencyLevel === "high" ? (
-                  <XCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-                ) : (
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                )}
+          {isScanning && (
+            <div className="mt-3">
+              <div className="relative h-1 w-full overflow-hidden rounded-sm bg-soc-line">
+                <div className="soc-indeterminate absolute inset-y-0 w-1/4 rounded-sm bg-soc-accent" />
               </div>
-
-              <div className="p-3 rounded-lg bg-[#060a14] border border-slate-800 flex items-start justify-between">
-                <div>
-                  <span className="font-bold text-white">Coercive Financial / Credential Demand</span>
-                  <p className="text-slate-400 text-[11px] mt-0.5">
-                    {analysisResult && analysisResult.manipulationTactics.some(t => t.includes("financial"))
-                      ? 'Demands Social Security Number, gift cards, or external wire payments.'
-                      : 'No overt financial coercion token matched.'}
-                  </p>
-                </div>
-                {analysisResult && analysisResult.manipulationTactics.some(t => t.includes("financial")) ? (
-                  <XCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-                ) : (
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                )}
-              </div>
-
-              {/* Email Authentication Headers (SPF/DKIM/DMARC) */}
-              <div className="p-3 rounded-lg bg-[#060a14] border border-slate-800 flex items-start justify-between">
-                <div>
-                  <span className="font-bold text-white">SPF / DKIM / DMARC Authentication</span>
-                  <p className="text-slate-400 text-[11px] mt-0.5">
-                    {analysisResult && analysisResult.headerAuthStatus === "fail"
-                      ? 'SPF=FAIL · Sender IP unaligned with authorized domain SPF record.'
-                      : 'Authentic headers or non-email message vector.'}
-                  </p>
-                </div>
-                {analysisResult && analysisResult.headerAuthStatus === "fail" ? (
-                  <XCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-                ) : (
-                  <span className="text-[10px] font-mono text-slate-400">N/A</span>
-                )}
-              </div>
+              <p className="mt-1.5 text-[11px] text-soc-muted">
+                Waiting for the local model. Large models can take several minutes to respond.
+              </p>
             </div>
+          )}
+          {error && (
+            <Notice tone="danger" icon={XCircle} title="Analysis error" className="mt-3">
+              {error}
+            </Notice>
+          )}
+        </Panel>
 
-            {/* Extracted Links */}
-            <div className="pt-2">
-              <span className="text-xs font-semibold text-slate-300">Extracted URLs & Status:</span>
-              {analysisResult && analysisResult.extractedLinks.length > 0 ? (
-                <div className="mt-2 space-y-1 p-2.5 rounded-lg bg-[#060a14] border border-slate-800 text-xs font-mono">
-                  {analysisResult.extractedLinks.map((link, index) => (
-                    <div key={index} className="flex flex-col gap-1 pb-1 border-b border-slate-700/50 last:border-0">
-                      <span className="truncate text-rose-300">{link.url}</span>
-                      <span className={`text-[10px] px-2 py-0.5 rounded ${
-                        link.status === 'flagged' || link.status === 'deceptive' 
-                          ? 'bg-rose-950/60 text-rose-400 font-bold border border-rose-500/30' 
-                          : 'bg-emerald-950/30 text-emerald-400 font-medium border border-emerald-500/20'
-                      }`}>
-                        {link.status.toUpperCase()}
+        {/* Results */}
+        <div className="space-y-4">
+          <Panel
+            title="Threat classification"
+            accent={analysisResult ? urgencySev : undefined}
+            actions={
+              analysisResult ? (
+                <DataTag kind="live" label={modelUsed ? `Backend · ${modelUsed}` : 'Backend analysis'} />
+              ) : (
+                <DataTag kind="local" label="Awaiting analysis" />
+              )
+            }
+          >
+            {!analysisResult ? (
+              <EmptyState icon={Brain} title="No analysis yet">
+                Select a sample or paste a message, then run “Evaluate scam signatures”. Results come only from the backend
+                model; nothing is pre-filled.
+              </EmptyState>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="soc-label">Urgency level</div>
+                    <div className="mt-1 flex items-center gap-2">
+                      <span className={`rounded-[3px] border px-1.5 py-[1px] font-mono text-[11px] font-semibold uppercase ${urgencyStyle.bg} ${urgencyStyle.border} ${urgencyStyle.text}`}>
+                        {analysisResult.urgencyLevel || 'Unknown'}
                       </span>
+                      <h4 className="text-sm font-semibold text-soc-text">{classificationTitle}</h4>
                     </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="soc-label">Model confidence</div>
+                    <div className="font-mono text-2xl font-semibold tabular-nums text-soc-text">
+                      {analysisResult.confidenceScore !== undefined ? `${analysisResult.confidenceScore}%` : 'N/A'}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 text-xs">
+                  <UserX className="h-3.5 w-3.5 text-soc-muted" />
+                  <span className="text-soc-muted">Impersonated entity</span>
+                  <span className="font-medium text-soc-text">{analysisResult.impersonatedEntity || 'Unknown'}</span>
+                </div>
+                <div className="soc-well p-3 text-xs leading-relaxed text-soc-text-2">
+                  <div className="soc-label mb-1">Analyst summary</div>
+                  {analysisResult.analystSummary || 'No summary returned.'}
+                </div>
+              </div>
+            )}
+          </Panel>
+
+          <Panel title="Behavioral & psychological triggers" flush>
+            <ul className="divide-y divide-soc-line text-xs">
+              {triggerRows.map((row) => (
+                <li key={row.title} className="flex items-start justify-between gap-3 px-4 py-2.5">
+                  <div>
+                    <div className="font-medium text-soc-text">{row.title}</div>
+                    <p className="mt-0.5 text-[11px] text-soc-text-2">{row.detail}</p>
+                  </div>
+                  {row.state === 'bad' ? (
+                    <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-sev-critical" />
+                  ) : row.state === 'ok' ? (
+                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-sev-clean" />
+                  ) : (
+                    <MinusCircle className="mt-0.5 h-4 w-4 shrink-0 text-soc-muted" />
+                  )}
+                </li>
+              ))}
+            </ul>
+            <div className="border-t border-soc-line px-4 py-3">
+              <div className="soc-label mb-1.5">Identified manipulation tactics ({tactics.length})</div>
+              {tactics.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {tactics.map((t, i) => (
+                    <span key={`${t}-${i}`} className="inline-flex items-center gap-1 rounded-[3px] border border-sev-high/30 bg-sev-high/[0.07] px-1.5 py-[1px] text-[11px] text-soc-text-2">
+                      <AlertTriangle className="h-3 w-3 text-sev-high" />
+                      {t}
+                    </span>
                   ))}
                 </div>
               ) : (
-                <div className="mt-2 p-2.5 rounded-lg bg-[#060a14] border border-slate-800 text-xs font-mono text-slate-500">
-                  No link found
-                </div>
+                <p className="text-[11px] text-soc-muted">{analysisResult ? 'None identified.' : 'Awaiting analysis.'}</p>
               )}
             </div>
-          </div>
+          </Panel>
+
+          <Panel title="Extracted URLs & status" icon={LinkIcon} flush>
+            {analysisResult && analysisResult.extractedLinks.length > 0 ? (
+              <table className="soc-table">
+                <thead>
+                  <tr>
+                    <th>URL</th>
+                    <th className="text-right">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {analysisResult.extractedLinks.map((link, index) => (
+                    <tr key={index}>
+                      <td className="max-w-[360px] truncate font-mono text-[11px] text-soc-text" title={link.url}>
+                        {link.url}
+                      </td>
+                      <td className="text-right">
+                        <span className={`whitespace-nowrap rounded-[3px] border px-1.5 py-[1px] font-mono text-[10px] font-semibold uppercase ${linkTone(link.status)}`}>
+                          {link.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p className="px-4 py-3 font-mono text-[11px] text-soc-muted">No link found</p>
+            )}
+          </Panel>
         </div>
       </div>
     </div>

@@ -1,36 +1,56 @@
-import React, { useState } from 'react';
-import {
-  FileText,
-  Download,
-  Share2,
-  Printer,
-  ShieldCheck,
-  CheckCircle2,
-  Copy,
-  ExternalLink,
-} from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { FileText, Printer, Copy, ShieldCheck } from 'lucide-react';
 import { SAMPLE_INVESTIGATIONS } from '../data/mockData';
+import { PageHeader, DataTag, KV } from '../components/ui/Soc';
+import { StatusBadge, SeverityBadge } from '../components/common/StatusBadge';
+import { normalizeVerdict, utcStamp, verdictSeverity, SEVERITY_STYLES } from '../lib/severity';
 
 export const ReportsPage: React.FC = () => {
   const [selectedIncident, setSelectedIncident] = useState<string>('INV-2026-9041');
   const [copiedMd, setCopiedMd] = useState<boolean>(false);
 
-  const incident =
-    SAMPLE_INVESTIGATIONS.find((i) => i.id === selectedIncident) || SAMPLE_INVESTIGATIONS[0];
+  const incident = SAMPLE_INVESTIGATIONS.find((i) => i.id === selectedIncident) || SAMPLE_INVESTIGATIONS[0];
+  const verdict = normalizeVerdict(incident.verdict);
+  const verdictTone = SEVERITY_STYLES[verdictSeverity(incident.verdict)].text;
+  const generatedAt = useMemo(() => utcStamp(), [selectedIncident]);
+
+  // Summary and recommendations follow the incident's actual verdict.
+  const summary =
+    verdict === 'Malicious'
+      ? `Target domain ${incident.target} was flagged with a MALICIOUS verdict and a Digital Trust Score of ${incident.trustScore}/100. Primary indicators: ${incident.categories.join(', ')}.`
+      : verdict === 'Suspicious'
+      ? `Target domain ${incident.target} was flagged as SUSPICIOUS with a Digital Trust Score of ${incident.trustScore}/100 and requires analyst review. Observed indicators: ${incident.categories.join(', ')}.`
+      : verdict === 'Clean'
+      ? `Target domain ${incident.target} returned a CLEAN verdict with a Digital Trust Score of ${incident.trustScore}/100. Positive posture indicators: ${incident.categories.join(', ')}.`
+      : `Target domain ${incident.target} returned an INCONCLUSIVE verdict (Digital Trust Score ${incident.trustScore}/100). Further evidence is required.`;
+
+  const recommendations =
+    verdict === 'Clean'
+      ? [
+          'No blocking action required. Retain the domain on the monitored allow-list.',
+          'Re-assess on certificate renewal or infrastructure change.',
+          'Verify on Sentinel blockchain ledger to preserve tamper-proof timestamp evidence.',
+        ]
+      : [
+          `Add ${incident.ipAddress} and domain indicators to security gateway blocklists.`,
+          'Submit automated abuse report to hosting provider and registrar.',
+          'Verify on Sentinel blockchain ledger to preserve tamper-proof timestamp evidence.',
+        ];
 
   const markdownReport = `# SENTINEL AI - THREAT INTELLIGENCE INCIDENT REPORT
 **Document Reference:** ${incident.id}
 **Classification:** PROTOTYPE DEMO REPORT // SIMULATED FOR HACKATHON EVALUATION
-**Generated:** 2026-11-07 18:15:00 UTC
+**Generated:** ${generatedAt}
 **Investigator:** ${incident.investigator}
 
 ---
 
 ## 1. Executive Summary
-During automated perimeter and threat intelligence sweeps, target domain **${incident.target}** was flagged with a **${incident.verdict.toUpperCase()}** verdict and a Digital Trust Score of **${incident.trustScore}/100**. The target demonstrates hostile intent matching credential harvesting operations against online banking consumers.
+${summary}
 
 ## 2. Threat Vector Attribution
 - **Target Domain:** ${incident.target}
+- **Verdict / Severity:** ${incident.verdict} / ${incident.severity}
 - **Resolved IPv4:** ${incident.ipAddress}
 - **Origin Geolocation:** ${incident.country} (${incident.countryCode})
 - **Autonomous System:** ${incident.asn}
@@ -42,10 +62,8 @@ During automated perimeter and threat intelligence sweeps, target domain **${inc
 - **ISO/IEC 27001:2022:** A.8.16 (Monitoring activities), A.8.23 (Web filtering)
 - **Consensus Hash Anchor:** \`${incident.hashProof}\`
 
-## 4. Immediate Remediation Actions
-1. **Network Layer:** Sinkhole DNS record across internal resolvers and edge proxies.
-2. **Identity & Access:** Revoke and force re-authentication for all corporate sessions that accessed this domain.
-3. **External Takedown:** Transmit verified digital proof to hosting provider abuse team.
+## 4. Recommended Actions
+${recommendations.map((r, i) => `${i + 1}. ${r}`).join('\n')}
 `;
 
   const copyMarkdown = () => {
@@ -59,122 +77,140 @@ During automated perimeter and threat intelligence sweeps, target domain **${inc
   };
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="p-6 rounded-xl bg-[#090e1c] border border-cyan-500/20 shadow-[0_0_20px_rgba(6,182,212,0.05)]">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2">
-              <div className="p-2 rounded-lg bg-cyan-950/60 border border-cyan-500/30 text-cyan-400">
-                <FileText className="w-5 h-5" />
-              </div>
-              <h2 className="text-xl font-bold text-white tracking-tight">
-                Executive &amp; Compliance Incident Reports
-              </h2>
-            </div>
-            <p className="text-xs md:text-sm text-slate-400 mt-2 max-w-3xl leading-relaxed">
-              Export audit-ready forensic dossiers aligned with NIST CSF 2.0 and ISO/IEC 27001 standards for CISOs, regulators, and legal response teams.
-            </p>
+    <div className="soc-page">
+      <div className="print:hidden">
+        <PageHeader
+          icon={FileText}
+          title="Executive & compliance incident reports"
+          description="Export audit-ready forensic dossiers aligned with NIST CSF 2.0 and ISO/IEC 27001 for CISOs, regulators and legal response teams."
+          actions={
+            <>
+              <DataTag kind="demo" label="Demo report" />
+              <button onClick={copyMarkdown} className="soc-btn h-7 text-[11px]">
+                <Copy className="h-3.5 w-3.5" />
+                {copiedMd ? 'Copied' : 'Copy Markdown'}
+              </button>
+              <button onClick={handlePrint} className="soc-btn h-7 text-[11px]">
+                <Printer className="h-3.5 w-3.5" />
+                Print / PDF
+              </button>
+            </>
+          }
+        >
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="soc-label mr-1">Incident dossier</span>
+            {SAMPLE_INVESTIGATIONS.map((inv) => (
+              <button
+                key={inv.id}
+                onClick={() => setSelectedIncident(inv.id)}
+                data-active={selectedIncident === inv.id}
+                className="soc-chip hover:border-soc-forest-2 hover:text-soc-text data-[active=true]:border-soc-forest-2 data-[active=true]:bg-soc-forest/60 data-[active=true]:text-soc-text"
+              >
+                {inv.id} · {inv.target.split(' ')[0]}
+              </button>
+            ))}
           </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={copyMarkdown}
-              className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-mono font-semibold rounded-lg bg-cyan-950/60 hover:bg-cyan-900/60 border border-cyan-500/30 text-cyan-300 transition-colors"
-            >
-              <Copy className="w-3.5 h-3.5" />
-              <span>{copiedMd ? 'Copied' : 'Copy Markdown'}</span>
-            </button>
-            <button
-              onClick={handlePrint}
-              className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-mono font-semibold rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors"
-            >
-              <Printer className="w-3.5 h-3.5" />
-              <span>Print / PDF</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Incident Selector */}
-        <div className="mt-4 pt-3 border-t border-slate-800/80 flex flex-wrap items-center gap-2 text-xs">
-          <span className="text-slate-500 font-medium">Select Incident Dossier:</span>
-          {SAMPLE_INVESTIGATIONS.slice(0, 4).map((inv) => (
-            <button
-              key={inv.id}
-              onClick={() => setSelectedIncident(inv.id)}
-              className={`px-3 py-1 rounded-lg border font-mono text-[11px] transition-colors ${
-                selectedIncident === inv.id
-                  ? 'bg-cyan-500/15 border-cyan-500/40 text-cyan-300 font-bold'
-                  : 'bg-[#060a14] border-slate-800 text-slate-400 hover:text-white'
-              }`}
-            >
-              {inv.id} ({inv.target.split(' ')[0]})
-            </button>
-          ))}
-        </div>
+        </PageHeader>
       </div>
 
-      {/* Report Preview Document */}
-      <div className="p-8 rounded-xl bg-[#070b16] border border-slate-800 space-y-6 shadow-xl">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-800">
+      {/* Report document */}
+      <article className="soc-panel soc-print-doc mx-auto w-full max-w-5xl">
+        <header className="flex flex-col gap-3 border-b border-soc-line px-6 py-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-sm font-bold tracking-widest text-white font-mono">
-                SENTINEL // SOC INCIDENT REPORT
-              </span>
+              <ShieldCheck className="h-4 w-4 text-soc-accent" />
+              <span className="font-mono text-xs font-semibold tracking-[0.18em] text-soc-text">SENTINEL // SOC INCIDENT REPORT</span>
             </div>
-            <p className="text-xs text-slate-400 mt-1 font-mono">
-              CONFIDENTIAL FORENSIC DOSSIER · REF: {incident.id}
+            <p className="mt-1 font-mono text-[11px] text-soc-muted">CONFIDENTIAL FORENSIC DOSSIER · REF {incident.id}</p>
+            <p className="font-mono text-[11px] text-soc-muted">
+              Generated {generatedAt} · {incident.investigator}
+            </p>
+            <p className="mt-1 font-mono text-[10px] uppercase tracking-wider text-sev-medium">
+              Prototype demo report // simulated for hackathon evaluation
             </p>
           </div>
-
-          <div className="p-3 rounded-lg bg-[#050811] border border-slate-800 text-right text-xs font-mono">
-            <div className="text-slate-400 text-[10px]">THREAT VERDICT</div>
-            <div className="text-rose-400 font-bold text-sm">{incident.verdict.toUpperCase()}</div>
-          </div>
-        </div>
-
-        {/* Rendered Sections */}
-        <div className="space-y-6 text-sm text-slate-300">
-          <div className="space-y-2">
-            <h3 className="text-base font-bold text-white tracking-tight">1. Executive Summary</h3>
-            <p className="text-xs text-slate-300 leading-relaxed">
-              Target domain <code className="text-cyan-300 font-mono font-bold">{incident.target}</code> has been confirmed hostile by the automated threat intelligence cluster with an overall Digital Trust Score of <strong className="text-rose-400 font-mono">{incident.trustScore}/100</strong>. Primary indicators confirm an active credential harvesting campaign impersonating financial services.
-            </p>
-          </div>
-
-          <div className="space-y-3">
-            <h3 className="text-base font-bold text-white tracking-tight">2. Technical Attribution Evidence</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs font-mono">
-              <div className="p-3 rounded bg-[#050811] border border-slate-800">
-                <span className="text-slate-400 text-[10px]">IP Address:</span>
-                <p className="text-white font-bold">{incident.ipAddress}</p>
-              </div>
-              <div className="p-3 rounded bg-[#050811] border border-slate-800">
-                <span className="text-slate-400 text-[10px]">Autonomous System:</span>
-                <p className="text-cyan-300 font-semibold">{incident.asn}</p>
-              </div>
-              <div className="p-3 rounded bg-[#050811] border border-slate-800">
-                <span className="text-slate-400 text-[10px]">TLS Certificate:</span>
-                <p className="text-amber-400 font-semibold">{incident.tlsStatus}</p>
-              </div>
-              <div className="p-3 rounded bg-[#050811] border border-slate-800">
-                <span className="text-slate-400 text-[10px]">Consensus Proof:</span>
-                <p className="text-slate-400 truncate">{incident.hashProof}</p>
-              </div>
+          <div className="soc-well min-w-[160px] px-3 py-2 text-right">
+            <div className="soc-label">Threat verdict</div>
+            <div className={`font-mono text-sm font-semibold ${verdictTone}`}>{incident.verdict.toUpperCase()}</div>
+            <div className="mt-1 flex justify-end">
+              <SeverityBadge level={incident.severity} />
             </div>
           </div>
+        </header>
 
-          <div className="space-y-2 pt-2 border-t border-slate-800">
-            <h3 className="text-base font-bold text-white tracking-tight">3. Incident Response Recommendations</h3>
-            <ol className="list-decimal list-inside space-y-1.5 text-xs text-slate-300">
-              <li>Add {incident.ipAddress} and domain indicators to security gateway blocklists.</li>
-              <li>Submit automated abuse report to hosting provider and registrar.</li>
-              <li>Verify on Sentinel blockchain ledger to preserve tamper-proof timestamp evidence.</li>
+        <div className="space-y-5 px-6 py-5 text-sm text-soc-text-2">
+          <section>
+            <h3 className="mb-1.5 text-[13px] font-semibold text-soc-text">1. Executive summary</h3>
+            <p className="text-xs leading-relaxed">{summary}</p>
+          </section>
+
+          <section>
+            <h3 className="mb-1.5 text-[13px] font-semibold text-soc-text">2. Technical attribution evidence</h3>
+            <div className="grid grid-cols-1 gap-x-8 sm:grid-cols-2">
+              <div>
+                <KV k="Target domain" v={incident.target} />
+                <KV k="IP address" v={incident.ipAddress} />
+                <KV k="Geolocation" v={`${incident.country} (${incident.countryCode})`} />
+                <KV k="Autonomous system" v={incident.asn} />
+              </div>
+              <div>
+                <KV k="Verdict" v={<StatusBadge verdict={incident.verdict} size="sm" />} />
+                <KV k="Trust score" v={`${incident.trustScore}/100`} />
+                <KV k="TLS certificate" v={<StatusBadge verdict={incident.tlsStatus} size="sm" />} />
+                <KV k="Classified vectors" v={<span className="block max-w-[260px] truncate">{incident.categories.join(', ')}</span>} />
+              </div>
+            </div>
+            <div className="soc-well mt-2 px-3 py-2">
+              <div className="soc-label">Consensus hash anchor</div>
+              <div className="break-all font-mono text-[11px] text-soc-text-2">{incident.hashProof}</div>
+            </div>
+          </section>
+
+          <section>
+            <h3 className="mb-1.5 text-[13px] font-semibold text-soc-text">3. Compliance & governance alignment</h3>
+            <table className="soc-table">
+              <thead>
+                <tr>
+                  <th>Framework</th>
+                  <th>Control</th>
+                  <th>Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td className="font-mono text-soc-text">NIST CSF 2.0</td>
+                  <td className="font-mono">DE.CM-01</td>
+                  <td>Continuous threat monitoring</td>
+                </tr>
+                <tr>
+                  <td className="font-mono text-soc-text">NIST CSF 2.0</td>
+                  <td className="font-mono">RS.AN-03</td>
+                  <td>Forensic analysis</td>
+                </tr>
+                <tr>
+                  <td className="font-mono text-soc-text">ISO/IEC 27001:2022</td>
+                  <td className="font-mono">A.8.16</td>
+                  <td>Monitoring activities</td>
+                </tr>
+                <tr>
+                  <td className="font-mono text-soc-text">ISO/IEC 27001:2022</td>
+                  <td className="font-mono">A.8.23</td>
+                  <td>Web filtering</td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+
+          <section className="border-t border-soc-line pt-4">
+            <h3 className="mb-1.5 text-[13px] font-semibold text-soc-text">4. Incident response recommendations</h3>
+            <ol className="list-inside list-decimal space-y-1 text-xs">
+              {recommendations.map((r) => (
+                <li key={r}>{r}</li>
+              ))}
             </ol>
-          </div>
+          </section>
         </div>
-      </div>
+      </article>
     </div>
   );
 };

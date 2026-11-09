@@ -89,7 +89,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-[#050811] text-slate-100 flex flex-col font-sans">
+    <div className="flex min-h-screen flex-col bg-soc-bg font-sans text-soc-text">
       {/* Responsive Navigation Sidebar */}
       <Sidebar
         activePage={activePage}
@@ -103,8 +103,8 @@ export default function App() {
 
       {/* Main Content Area */}
       <div
-        className={`flex-1 flex flex-col transition-all duration-300 ${
-          isSidebarOpen ? 'lg:pl-64' : 'lg:pl-20'
+        className={`flex min-w-0 flex-1 flex-col transition-[padding] duration-200 print:pl-0 ${
+          isSidebarOpen ? 'lg:pl-60' : 'lg:pl-16'
         }`}
       >
         {/* Global Header */}
@@ -117,7 +117,7 @@ export default function App() {
         />
 
         {/* Page Viewport */}
-        <main className="flex-1 p-4 md:p-6 lg:p-8 overflow-y-auto">
+        <main className="min-w-0 flex-1 overflow-y-auto p-3 md:p-4 lg:p-5 print:p-0">
           {renderActivePage()}
         </main>
       </div>

@@ -1,17 +1,8 @@
 import React, { useState } from 'react';
-import {
-  Blocks,
-  CheckCircle2,
-  ShieldCheck,
-  Search,
-  Copy,
-  ExternalLink,
-  Fingerprint,
-  Cpu,
-  Layers,
-  ArrowRight,
-} from 'lucide-react';
+import { Blocks, CheckCircle2, ArrowRight, Fingerprint, SearchX, Loader2, Link2 } from 'lucide-react';
 import { SAMPLE_BLOCKCHAIN_BLOCKS } from '../data/mockData';
+import { PageHeader, Panel, DataTag, KpiTile } from '../components/ui/Soc';
+import { utcStamp } from '../lib/severity';
 
 export const BlockchainVerificationPage: React.FC = () => {
   const [verifyHashInput, setVerifyHashInput] = useState<string>('0x8f2a994cbe41982b6b5539201948ab1164919cb42e99f0101488c991a0b38421');
@@ -31,6 +22,8 @@ export const BlockchainVerificationPage: React.FC = () => {
     merkleRoot: '0x44ab9102948c00192a481944810283c4',
   });
   const [isVerifying, setIsVerifying] = useState<boolean>(false);
+
+  const blockHeight = Math.max(...SAMPLE_BLOCKCHAIN_BLOCKS.map((b) => b.blockNumber));
 
   const handleVerify = (e: React.FormEvent) => {
     e.preventDefault();
@@ -57,163 +50,168 @@ export const BlockchainVerificationPage: React.FC = () => {
           merkleRoot: matched.merkleRoot,
         });
       } else {
+        // No record in the (demo) ledger: report it as unverified instead of fabricating a proof.
         setVerificationResult({
-          verified: true,
-          blockNumber: 104830,
-          timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19) + ' UTC',
+          verified: false,
+          blockNumber: 0,
+          timestamp: utcStamp(),
           target: verifyHashInput.trim(),
-          validator: 'Sentinel-Node-Frankfurt-01 (Simulated)',
-          merkleRoot: '0x' + Array.from({ length: 32 }, () => Math.floor(Math.random() * 16).toString(16)).join(''),
+          validator: '—',
+          merkleRoot: '—',
         });
       }
     }, 500);
   };
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="p-6 rounded-xl bg-[#090e1c] border border-cyan-500/20 shadow-[0_0_20px_rgba(6,182,212,0.05)]">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2">
-              <div className="p-2 rounded-lg bg-cyan-950/60 border border-cyan-500/30 text-cyan-400">
-                <Blocks className="w-5 h-5" />
-              </div>
-              <h2 className="text-xl font-bold text-white tracking-tight">
-                Blockchain Digital Trust &amp; Cryptographic Proof Ledger
-              </h2>
-            </div>
-            <p className="text-xs md:text-sm text-slate-400 mt-2 max-w-3xl leading-relaxed">
-              Every forensic finding, threat verdict, and TLS snapshot is hashed and anchored into an immutable, tamper-proof consensus ledger.
-            </p>
-          </div>
+    <div className="soc-page">
+      <PageHeader
+        icon={Blocks}
+        title="Blockchain digital trust & cryptographic proof ledger"
+        description="Forensic findings, threat verdicts and TLS snapshots are hashed and anchored into a tamper-evident consensus ledger."
+        actions={<DataTag kind="simulated" label="Prototype ledger demo" />}
+      />
 
-          <div className="flex items-center gap-2">
-            <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-950/60 text-amber-300 border border-amber-500/40">
-              PROTOTYPE LEDGER DEMO
-            </span>
-            <span className="text-xs font-mono text-slate-400">Block Height:</span>
-            <span className="px-2.5 py-1 rounded-lg bg-cyan-950/60 border border-cyan-500/30 text-cyan-300 font-mono font-bold text-xs">
-              #104,829
-            </span>
-          </div>
-        </div>
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <KpiTile label="Block height" value={`#${blockHeight.toLocaleString('en-US')}`} hint="Latest sample block" icon={Blocks} />
+        <KpiTile label="Records in ledger" value={SAMPLE_BLOCKCHAIN_BLOCKS.length} hint="Sample anchored verdicts" icon={Fingerprint} tone="low" />
+        <KpiTile
+          label="Confirmed"
+          value={SAMPLE_BLOCKCHAIN_BLOCKS.filter((b) => b.status.toLowerCase() === 'confirmed').length}
+          hint="Consensus reached"
+          icon={CheckCircle2}
+          tone="clean"
+        />
+        <KpiTile label="Consensus" value="PoA" hint="Proof of Authority" icon={Link2} tone="medium" />
       </div>
 
-      {/* Verification Tool Card */}
-      <div className="p-6 rounded-xl bg-[#090e1c] border border-slate-800 space-y-4">
-        <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">
-          Audit Forensic Record Integrity
-        </h3>
-        <p className="text-xs text-slate-400">
-          Enter any SHA-256 verdict hash or Merkle root to confirm timestamp proofs and validator consensus signatures.
-        </p>
-
-        <form onSubmit={handleVerify} className="flex flex-col sm:flex-row gap-2">
-          <div className="relative flex-1">
-            <input
-              type="text"
-              value={verifyHashInput}
-              onChange={(e) => setVerifyHashInput(e.target.value)}
-              placeholder="Enter record hash (0x... or SHA-256 hex string)"
-              className="w-full bg-[#050811] border border-slate-800 rounded-lg px-4 py-2.5 text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400"
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={isVerifying}
-            className="px-5 py-2.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-black font-semibold text-xs font-mono flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
-          >
-            <span>{isVerifying ? 'Checking Merkle Tree...' : 'Verify Cryptographic Proof'}</span>
-            <ArrowRight className="w-4 h-4" />
+      <Panel title="Audit forensic record integrity" subtitle="Enter a SHA-256 verdict hash or target domain to confirm timestamp proofs and validator consensus.">
+        <form onSubmit={handleVerify} className="flex flex-col gap-2 sm:flex-row">
+          <input
+            type="text"
+            value={verifyHashInput}
+            onChange={(e) => setVerifyHashInput(e.target.value)}
+            aria-label="Record hash or target"
+            placeholder="Enter record hash (0x... or SHA-256 hex string)"
+            className="soc-input h-9 flex-1"
+          />
+          <button type="submit" disabled={isVerifying} className="soc-btn soc-btn-primary h-9">
+            {isVerifying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+            {isVerifying ? 'Checking Merkle tree…' : 'Verify cryptographic proof'}
+            {!isVerifying && <ArrowRight className="h-3.5 w-3.5" />}
           </button>
         </form>
 
-        {/* Verification Certificate Result */}
         {verificationResult && (
-          <div className="mt-4 p-4 rounded-lg bg-emerald-950/30 border border-emerald-500/40 space-y-3">
-            <div className="flex items-center justify-between">
+          <div
+            className={`mt-3 rounded border ${
+              verificationResult.verified ? 'border-sev-clean/35 bg-sev-clean/[0.06]' : 'border-sev-medium/35 bg-sev-medium/[0.06]'
+            }`}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-soc-line px-3 py-2">
               <div className="flex items-center gap-2">
-                <CheckCircle2 className="w-5 h-5 text-emerald-400" />
-                <span className="text-sm font-bold text-emerald-300 font-mono">
-                  CRYPTOGRAPHIC PROOF VERIFIED ON-CHAIN
+                {verificationResult.verified ? (
+                  <CheckCircle2 className="h-4 w-4 text-sev-clean" />
+                ) : (
+                  <SearchX className="h-4 w-4 text-sev-medium" />
+                )}
+                <span className={`font-mono text-xs font-semibold ${verificationResult.verified ? 'text-sev-clean' : 'text-sev-medium'}`}>
+                  {verificationResult.verified ? 'CRYPTOGRAPHIC PROOF VERIFIED (DEMO LEDGER)' : 'NO MATCHING RECORD IN DEMO LEDGER'}
                 </span>
               </div>
-              <span className="text-xs font-mono text-emerald-400">Consensus Confirmed</span>
+              <span className="font-mono text-[11px] text-soc-muted">
+                {verificationResult.verified ? 'Consensus confirmed' : `Checked ${verificationResult.timestamp}`}
+              </span>
             </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-xs font-mono pt-2 border-t border-emerald-900/50">
-              <div>
-                <span className="text-slate-400 text-[10px] uppercase">Block Height</span>
-                <p className="text-white font-bold">#{verificationResult.blockNumber}</p>
+            {verificationResult.verified ? (
+              <div className="grid grid-cols-1 gap-3 px-3 py-2.5 font-mono text-xs sm:grid-cols-2 lg:grid-cols-5">
+                <div>
+                  <div className="soc-label">Block height</div>
+                  <div className="font-semibold text-soc-text">#{verificationResult.blockNumber}</div>
+                </div>
+                <div className="min-w-0">
+                  <div className="soc-label">Target domain</div>
+                  <div className="truncate text-soc-text">{verificationResult.target}</div>
+                </div>
+                <div>
+                  <div className="soc-label">Validator node</div>
+                  <div className="text-soc-text-2">{verificationResult.validator}</div>
+                </div>
+                <div className="min-w-0">
+                  <div className="soc-label">Merkle root</div>
+                  <div className="truncate text-soc-text-2">{verificationResult.merkleRoot}</div>
+                </div>
+                <div>
+                  <div className="soc-label">Anchored</div>
+                  <div className="text-soc-text-2">{verificationResult.timestamp}</div>
+                </div>
               </div>
-              <div>
-                <span className="text-slate-400 text-[10px] uppercase">Target Domain</span>
-                <p className="text-cyan-300 font-semibold truncate">{verificationResult.target}</p>
-              </div>
-              <div>
-                <span className="text-slate-400 text-[10px] uppercase">Validator Node</span>
-                <p className="text-white">{verificationResult.validator}</p>
-              </div>
-              <div>
-                <span className="text-slate-400 text-[10px] uppercase">Merkle Root</span>
-                <p className="text-slate-300 truncate">{verificationResult.merkleRoot}</p>
-              </div>
-            </div>
+            ) : (
+              <p className="px-3 py-2.5 text-xs text-soc-text-2">
+                <span className="font-mono text-soc-text">{verificationResult.target}</span> does not match any verdict hash or
+                target in the sample ledger. No proof has been generated.
+              </p>
+            )}
           </div>
         )}
-      </div>
+      </Panel>
 
-      {/* Live Blockchain Stream Table */}
-      <div className="p-6 rounded-xl bg-[#090e1c] border border-slate-800 space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">
-            Recent Trust Ledger Blocks
-          </h3>
-          <span className="text-xs font-mono text-cyan-400">Consensus Algorithm: Proof of Authority (PoA)</span>
-        </div>
-
+      <Panel
+        title="Recent trust ledger blocks"
+        flush
+        actions={
+          <>
+            <span className="soc-label">Proof of Authority (PoA)</span>
+            <DataTag kind="simulated" />
+          </>
+        }
+      >
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs font-mono">
+          <table className="soc-table font-mono">
             <thead>
-              <tr className="border-b border-slate-800 text-slate-400 uppercase text-[11px]">
-                <th className="py-3 px-3">Block #</th>
-                <th className="py-3 px-3">Target Domain</th>
-                <th className="py-3 px-3">Verdict Hash Fingerprint</th>
-                <th className="py-3 px-3">Validator Node</th>
-                <th className="py-3 px-3">Timestamp (UTC)</th>
-                <th className="py-3 px-3 text-right">Status</th>
+              <tr>
+                <th>Block #</th>
+                <th>Target domain</th>
+                <th>Verdict hash fingerprint</th>
+                <th>Prev. block hash</th>
+                <th>Validator node</th>
+                <th>Timestamp (UTC)</th>
+                <th className="text-right">Status</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800/60 font-sans">
-              {SAMPLE_BLOCKCHAIN_BLOCKS.map((block) => (
-                <tr key={block.blockNumber} className="hover:bg-slate-800/30 font-mono">
-                  <td className="py-3 px-3 text-cyan-400 font-bold whitespace-nowrap">
-                    #{block.blockNumber}
-                  </td>
-                  <td className="py-3 px-3 text-white max-w-[200px] truncate">
-                    {block.threatTarget}
-                  </td>
-                  <td className="py-3 px-3 text-slate-300 max-w-[240px] truncate">
-                    {block.verdictHash}
-                  </td>
-                  <td className="py-3 px-3 text-slate-400 whitespace-nowrap">
-                    {block.consensusValidator}
-                  </td>
-                  <td className="py-3 px-3 text-slate-400 whitespace-nowrap">
-                    {block.timestamp.split(' ')[0]} {block.timestamp.split(' ')[1]}
-                  </td>
-                  <td className="py-3 px-3 text-right whitespace-nowrap">
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950/40 text-emerald-300 border border-emerald-500/30">
-                      CONFIRMED
-                    </span>
-                  </td>
-                </tr>
-              ))}
+            <tbody>
+              {SAMPLE_BLOCKCHAIN_BLOCKS.map((block) => {
+                const confirmed = block.status.toLowerCase() === 'confirmed';
+                return (
+                  <tr key={block.blockNumber}>
+                    <td className="whitespace-nowrap font-semibold text-soc-accent-hi">#{block.blockNumber}</td>
+                    <td className="max-w-[200px] truncate text-soc-text">{block.threatTarget}</td>
+                    <td className="max-w-[220px] truncate" title={block.verdictHash}>
+                      {block.verdictHash}
+                    </td>
+                    <td className="max-w-[160px] truncate text-soc-muted" title={block.previousBlockHash}>
+                      {block.previousBlockHash}
+                    </td>
+                    <td className="whitespace-nowrap">{block.consensusValidator}</td>
+                    <td className="whitespace-nowrap text-soc-muted">
+                      {block.timestamp.split(' ')[0]} {block.timestamp.split(' ')[1]}
+                    </td>
+                    <td className="whitespace-nowrap text-right">
+                      <span
+                        className={`rounded-[3px] border px-1.5 py-[1px] text-[10px] font-semibold uppercase ${
+                          confirmed ? 'border-sev-clean/35 bg-sev-clean/10 text-sev-clean' : 'border-sev-medium/35 bg-sev-medium/10 text-sev-medium'
+                        }`}
+                      >
+                        {block.status}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
-      </div>
+      </Panel>
     </div>
   );
 };

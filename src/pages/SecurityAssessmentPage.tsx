@@ -1,17 +1,9 @@
 import React, { useState } from 'react';
-import {
-  ShieldAlert,
-  ShieldCheck,
-  Layers,
-  AlertTriangle,
-  CheckCircle2,
-  XCircle,
-  Copy,
-  Terminal,
-  ExternalLink,
-  Search,
-} from 'lucide-react';
+import { ShieldAlert, Terminal, Copy, Network, Cookie } from 'lucide-react';
 import { SAMPLE_SECURITY_HEADERS } from '../data/mockData';
+import { PageHeader, Panel, DataTag } from '../components/ui/Soc';
+import { SeverityBadge } from '../components/common/StatusBadge';
+import { SEVERITY_STYLES } from '../lib/severity';
 
 export const SecurityAssessmentPage: React.FC = () => {
   const [targetHost, setTargetHost] = useState<string>('secure-login-chase-update.info');
@@ -80,217 +72,182 @@ add_header Referrer-Policy "strict-origin-when-cross-origin" always;
 add_header Content-Security-Policy "default-src 'self'; script-src 'self'; object-src 'none';" always;
 add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;`;
 
+  // Derived counts (case-insensitive) instead of a hard-coded deficiency figure.
+  const deficiencies = activeHeaders.filter((h) => h.status.toLowerCase() !== 'present');
+  const highDeficiencies = deficiencies.filter((h) => h.severity.toLowerCase() === 'high').length;
+
+  const statusPill = (status: string) => {
+    const s = status.toLowerCase();
+    const st = SEVERITY_STYLES[s === 'present' ? 'clean' : s === 'misconfigured' ? 'medium' : 'critical'];
+    return (
+      <span className={`rounded-[3px] border px-1.5 py-[1px] font-mono text-[10px] font-semibold uppercase tracking-wider ${st.bg} ${st.border} ${st.text}`}>
+        {status}
+      </span>
+    );
+  };
+
+  const ports = [
+    { port: '80/TCP', service: 'HTTP', status: 'Open (No auto-redirect to 443)', state: 'bad' },
+    { port: '443/TCP', service: 'HTTPS', status: 'Open (Weak Cipher Fallback)', state: 'warn' },
+    { port: '8080/TCP', service: 'HTTP-Proxy', status: 'Open (Admin Console Exposed)', state: 'bad' },
+    { port: '22/TCP', service: 'SSH', status: 'Filtered / Firewalled', state: 'good' },
+    { port: '3389/TCP', service: 'RDP', status: 'Closed', state: 'good' },
+  ];
+
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="p-6 rounded-xl bg-[#090e1c] border border-cyan-500/20 shadow-[0_0_20px_rgba(6,182,212,0.05)]">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2">
-              <div className="p-2 rounded-lg bg-cyan-950/60 border border-cyan-500/30 text-cyan-400">
-                <ShieldAlert className="w-5 h-5" />
-              </div>
-              <h2 className="text-xl font-bold text-white tracking-tight">
-                Website Security Posture Assessment
-              </h2>
-            </div>
-            <p className="text-xs md:text-sm text-slate-400 mt-2 max-w-3xl leading-relaxed">
-              Automated audit of defense-in-depth headers, cookie protections, exposed ports, and attack surface hardening.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-4">
-            <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-950/60 text-amber-300 border border-amber-500/40">
-              DEMO AUDIT
-            </span>
-
-            <div className="flex items-center gap-3">
-              <span className="text-xs font-mono text-slate-400">Security Grade:</span>
-              <div
-                className={`w-12 h-12 rounded-xl flex items-center justify-center font-bold text-2xl font-mono shadow-lg ${
-                  isHardened
-                    ? 'bg-emerald-950/80 border border-emerald-500 text-emerald-300 shadow-emerald-950/50'
-                    : 'bg-rose-950/80 border border-rose-500 text-rose-300 shadow-rose-950/50'
+    <div className="soc-page">
+      <PageHeader
+        icon={ShieldAlert}
+        title="Website security posture assessment"
+        description="Audit of defense-in-depth headers, cookie protections, exposed ports and attack-surface hardening."
+        actions={
+          <>
+            <DataTag kind="demo" label="Demo audit" />
+            <div className="flex items-center gap-2 rounded border border-soc-line bg-soc-well py-1 pl-2.5 pr-1">
+              <span className="soc-label">Security grade</span>
+              <span
+                className={`flex h-8 w-10 items-center justify-center rounded-sm border font-mono text-lg font-semibold ${
+                  isHardened ? 'border-sev-clean/50 bg-sev-clean/10 text-sev-clean' : 'border-sev-critical/50 bg-sev-critical/10 text-sev-critical'
                 }`}
               >
                 {isHardened ? 'A+' : 'F'}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Preset Selector */}
-        <div className="mt-4 pt-3 border-t border-slate-800/80 flex flex-wrap items-center gap-2 text-xs">
-          <span className="text-slate-500 font-medium">Select Evaluation Target:</span>
-          <button
-            onClick={() => setTargetHost('secure-login-chase-update.info')}
-            className={`px-3 py-1 rounded-lg border font-mono text-[11px] transition-colors ${
-              !isHardened
-                ? 'bg-rose-950/40 border-rose-500/40 text-rose-300 font-bold'
-                : 'bg-[#060a14] border-slate-800 text-slate-400 hover:text-white'
-            }`}
-          >
-            Chase Phish (Grade F)
-          </button>
-          <button
-            onClick={() => setTargetHost('stripe.com')}
-            className={`px-3 py-1 rounded-lg border font-mono text-[11px] transition-colors ${
-              isHardened
-                ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300 font-bold'
-                : 'bg-[#060a14] border-slate-800 text-slate-400 hover:text-white'
-            }`}
-          >
-            Stripe Infrastructure (Grade A+)
-          </button>
-        </div>
-      </div>
-
-      {/* Grid of Security Findings */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left 2 Cols: Security Headers Matrix */}
-        <div className="lg:col-span-2 space-y-6">
-          <div className="p-6 rounded-xl bg-[#090e1c] border border-slate-800 space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">
-                  HTTP Security Headers Audit
-                </h3>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Target: <span className="font-mono text-cyan-300">{targetHost}</span>
-                </p>
-              </div>
-              <span
-                className={`text-xs font-mono font-bold ${
-                  isHardened ? 'text-emerald-400' : 'text-rose-400'
-                }`}
-              >
-                {isHardened ? 'All Standards Enforced' : '4 Critical Deficiencies'}
               </span>
             </div>
-
-            <div className="space-y-3">
-              {activeHeaders.map((header) => (
-                <div
-                  key={header.name}
-                  className="p-4 rounded-lg bg-[#060a14] border border-slate-800 space-y-2 text-xs"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono font-bold text-white text-sm">
-                        {header.name}
-                      </span>
-                      <span
-                        className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase ${
-                          header.status === 'present'
-                            ? 'bg-emerald-950/50 text-emerald-300 border border-emerald-500/30'
-                            : header.status === 'misconfigured'
-                            ? 'bg-amber-950/50 text-amber-300 border border-amber-500/30'
-                            : 'bg-rose-950/50 text-rose-300 border border-rose-500/30'
-                        }`}
-                      >
-                        {header.status}
-                      </span>
-                    </div>
-
-                    <span className="text-[11px] font-mono text-slate-400 uppercase">
-                      Severity: {header.severity}
-                    </span>
-                  </div>
-
-                  <p className="text-slate-300 leading-relaxed text-xs">{header.recommendation}</p>
-
-                  {header.value && (
-                    <div className="p-2 rounded bg-black/60 font-mono text-[11px] text-cyan-300 border border-slate-800">
-                      Current Value: {header.value}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
+          </>
+        }
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="soc-label mr-1">Evaluation target</span>
+          <div className="soc-seg" role="tablist" aria-label="Evaluation target">
+            <button
+              role="tab"
+              aria-selected={!isHardened}
+              data-active={!isHardened}
+              onClick={() => setTargetHost('secure-login-chase-update.info')}
+              className="soc-seg-item"
+            >
+              Chase Phish (Grade F)
+            </button>
+            <button
+              role="tab"
+              aria-selected={isHardened}
+              data-active={isHardened}
+              onClick={() => setTargetHost('stripe.com')}
+              className="soc-seg-item"
+            >
+              Stripe Infrastructure (Grade A+)
+            </button>
           </div>
+          <span className="font-mono text-[11px] text-soc-muted">target: {targetHost}</span>
+        </div>
+      </PageHeader>
 
-          {/* Remediation Snippet */}
-          <div className="p-6 rounded-xl bg-[#090e1c] border border-slate-800 space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Terminal className="w-4 h-4 text-cyan-400" />
-                <h4 className="text-sm font-bold text-white font-mono">
-                  Nginx Hardening Configuration Fix
-                </h4>
-              </div>
-              <button
-                onClick={() => copySnippet(nginxFixSnippet, 'nginx')}
-                className="px-2.5 py-1 text-xs font-mono rounded bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center gap-1.5 transition-colors"
-              >
-                <Copy className="w-3.5 h-3.5" />
-                {copiedSnippet === 'nginx' ? 'Copied!' : 'Copy Config'}
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <div className="space-y-4 xl:col-span-2">
+          <Panel
+            title="HTTP security headers audit"
+            subtitle={<>Target <span className="font-mono text-soc-text-2">{targetHost}</span></>}
+            flush
+            actions={
+              <span className={`font-mono text-[11px] font-semibold ${deficiencies.length === 0 ? 'text-sev-clean' : 'text-sev-critical'}`}>
+                {deficiencies.length === 0
+                  ? 'All standards enforced'
+                  : `${deficiencies.length} deficiencies · ${highDeficiencies} high severity`}
+              </span>
+            }
+          >
+            <div className="overflow-x-auto">
+              <table className="soc-table">
+                <thead>
+                  <tr>
+                    <th>Header</th>
+                    <th>Status</th>
+                    <th>Severity</th>
+                    <th>Recommendation / current value</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {activeHeaders.map((header) => (
+                    <tr key={header.name}>
+                      <td className="whitespace-nowrap align-top font-mono font-medium text-soc-text">{header.name}</td>
+                      <td className="align-top">{statusPill(header.status)}</td>
+                      <td className="align-top">
+                        <SeverityBadge level={header.severity} />
+                      </td>
+                      <td className="min-w-[280px] align-top">
+                        <p className="text-[11px] leading-relaxed">{header.recommendation}</p>
+                        {header.value && (
+                          <div className="soc-well mt-1.5 break-all px-2 py-1 font-mono text-[10.5px] text-soc-text-2">
+                            <span className="text-soc-muted">current:</span> {header.value}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Panel>
+
+          <Panel
+            title="Nginx hardening configuration fix"
+            icon={Terminal}
+            actions={
+              <button onClick={() => copySnippet(nginxFixSnippet, 'nginx')} className="soc-btn h-7 text-[11px]">
+                <Copy className="h-3.5 w-3.5" />
+                {copiedSnippet === 'nginx' ? 'Copied' : 'Copy config'}
               </button>
-            </div>
-            <pre className="p-4 rounded-lg bg-[#050811] border border-slate-800 text-[11px] font-mono text-cyan-300 overflow-x-auto leading-relaxed">
-              {nginxFixSnippet}
-            </pre>
-          </div>
+            }
+          >
+            <pre className="soc-well overflow-x-auto p-3 font-mono text-[11px] leading-relaxed text-soc-text-2">{nginxFixSnippet}</pre>
+          </Panel>
         </div>
 
-        {/* Right Col: Exposed Ports & Cookie Security Posture */}
-        <div className="space-y-6">
-          <div className="p-6 rounded-xl bg-[#090e1c] border border-slate-800 space-y-4">
-            <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">
-              Port &amp; Surface Exposure
-            </h3>
-            <div className="space-y-2 text-xs font-mono">
-              {[
-                { port: '80/TCP', service: 'HTTP', status: 'Open (No auto-redirect to 443)', state: 'bad' },
-                { port: '443/TCP', service: 'HTTPS', status: 'Open (Weak Cipher Fallback)', state: 'warn' },
-                { port: '8080/TCP', service: 'HTTP-Proxy', status: 'Open (Admin Console Exposed)', state: 'bad' },
-                { port: '22/TCP', service: 'SSH', status: 'Filtered / Firewalled', state: 'good' },
-                { port: '3389/TCP', service: 'RDP', status: 'Closed', state: 'good' },
-              ].map((p) => (
-                <div
-                  key={p.port}
-                  className="p-2.5 rounded-lg bg-[#060a14] border border-slate-800 flex items-center justify-between"
-                >
-                  <div>
-                    <span className="text-white font-bold">{p.port}</span>
-                    <span className="text-slate-400 ml-2">({p.service})</span>
-                    <div className="text-[10px] text-slate-400 mt-0.5">{p.status}</div>
-                  </div>
-                  <span
-                    className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                      p.state === 'bad'
-                        ? 'text-rose-400 bg-rose-950/40 border border-rose-500/30'
-                        : p.state === 'warn'
-                        ? 'text-amber-400 bg-amber-950/40 border border-amber-500/30'
-                        : 'text-emerald-400 bg-emerald-950/40 border border-emerald-500/30'
-                    }`}
-                  >
-                    {p.state === 'bad' ? 'RISK' : p.state === 'warn' ? 'WARN' : 'SECURE'}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
+        <div className="space-y-4">
+          <Panel title="Port & surface exposure" icon={Network} flush actions={<DataTag kind="sample" />}>
+            <table className="soc-table">
+              <tbody>
+                {ports.map((p) => {
+                  const st = SEVERITY_STYLES[p.state === 'bad' ? 'critical' : p.state === 'warn' ? 'medium' : 'clean'];
+                  return (
+                    <tr key={p.port}>
+                      <td>
+                        <div className="font-mono font-semibold text-soc-text">
+                          {p.port} <span className="font-normal text-soc-muted">({p.service})</span>
+                        </div>
+                        <div className="text-[11px] text-soc-muted">{p.status}</div>
+                      </td>
+                      <td className="text-right">
+                        <span className={`rounded-[3px] border px-1.5 py-[1px] font-mono text-[10px] font-semibold ${st.bg} ${st.border} ${st.text}`}>
+                          {p.state === 'bad' ? 'RISK' : p.state === 'warn' ? 'WARN' : 'SECURE'}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <p className="border-t border-soc-line px-4 py-2 text-[11px] text-soc-muted">Sample exposure profile. No port scan is performed.</p>
+          </Panel>
 
-          {/* Cookie Security Flags */}
-          <div className="p-6 rounded-xl bg-[#090e1c] border border-slate-800 space-y-3">
-            <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">
-              Session Cookie Flags
-            </h3>
-            <div className="space-y-2 text-xs">
-              <div className="p-2.5 rounded-lg bg-[#060a14] border border-slate-800 flex items-center justify-between">
-                <span className="font-mono text-slate-300">Secure Flag</span>
-                <span className="text-rose-400 font-mono font-bold">Missing</span>
-              </div>
-              <div className="p-2.5 rounded-lg bg-[#060a14] border border-slate-800 flex items-center justify-between">
-                <span className="font-mono text-slate-300">HttpOnly Flag</span>
-                <span className="text-rose-400 font-mono font-bold">Missing (XSS Risk)</span>
-              </div>
-              <div className="p-2.5 rounded-lg bg-[#060a14] border border-slate-800 flex items-center justify-between">
-                <span className="font-mono text-slate-300">SameSite Attribute</span>
-                <span className="text-amber-400 font-mono font-bold">None</span>
-              </div>
-            </div>
-          </div>
+          <Panel title="Session cookie flags" icon={Cookie} flush actions={<DataTag kind="sample" />}>
+            <table className="soc-table">
+              <tbody>
+                <tr>
+                  <td className="font-mono text-soc-text-2">Secure flag</td>
+                  <td className="text-right font-mono font-semibold text-sev-critical">Missing</td>
+                </tr>
+                <tr>
+                  <td className="font-mono text-soc-text-2">HttpOnly flag</td>
+                  <td className="text-right font-mono font-semibold text-sev-critical">Missing (XSS risk)</td>
+                </tr>
+                <tr>
+                  <td className="font-mono text-soc-text-2">SameSite attribute</td>
+                  <td className="text-right font-mono font-semibold text-sev-medium">None</td>
+                </tr>
+              </tbody>
+            </table>
+          </Panel>
         </div>
       </div>
     </div>

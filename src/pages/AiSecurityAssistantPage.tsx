@@ -1,15 +1,43 @@
-import React, { useState } from 'react';
-import {
-  Bot,
-  Send,
-  Sparkles,
-  Shield,
-  Terminal,
-  CheckCircle2,
-  Copy,
-  RefreshCw,
-  Info,
-} from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Bot, Send, Copy, Check, Loader2, Info } from 'lucide-react';
+import { PageHeader, DataTag } from '../components/ui/Soc';
+import { utcTime } from '../lib/severity';
+
+/** Minimal, safe formatter for **bold**, `code` and ### headings in scripted replies. */
+const renderInline = (text: string, keyPrefix: string): React.ReactNode[] =>
+  text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).map((part, i) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return (
+        <strong key={`${keyPrefix}-${i}`} className="font-semibold text-soc-text">
+          {part.slice(2, -2)}
+        </strong>
+      );
+    }
+    if (part.startsWith('`') && part.endsWith('`')) {
+      return (
+        <code key={`${keyPrefix}-${i}`} className="rounded bg-soc-well px-1 py-px font-mono text-[11px] text-soc-text">
+          {part.slice(1, -1)}
+        </code>
+      );
+    }
+    return <React.Fragment key={`${keyPrefix}-${i}`}>{part}</React.Fragment>;
+  });
+
+const FormattedMessage: React.FC<{ content: string }> = ({ content }) => (
+  <div className="space-y-1.5">
+    {content.split('\n').map((line, i) => {
+      if (!line.trim()) return <div key={i} className="h-1" />;
+      if (line.startsWith('### ')) {
+        return (
+          <div key={i} className="soc-title pt-1 text-[11px]">
+            {renderInline(line.slice(4), `h${i}`)}
+          </div>
+        );
+      }
+      return <p key={i}>{renderInline(line, `p${i}`)}</p>;
+    })}
+  </div>
+);
 
 interface ChatMessage {
   id: string;
@@ -20,6 +48,8 @@ interface ChatMessage {
 }
 
 export const AiSecurityAssistantPage: React.FC = () => {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 'msg-1',
@@ -74,7 +104,7 @@ def inspect_domain(domain: str):
       id: `msg-${Date.now()}`,
       sender: 'user',
       content: text,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' UTC',
+      timestamp: utcTime(),
     };
 
     setMessages((prev) => [...prev, userMsg]);
@@ -105,7 +135,7 @@ We request immediate suspension pursuant to your Terms of Service regarding mali
           id: `msg-${Date.now() + 1}`,
           sender: 'assistant',
           content: botResponse,
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ' UTC',
+          timestamp: utcTime(),
           codeSnippet: snippet,
         },
       ]);
@@ -113,119 +143,115 @@ We request immediate suspension pursuant to your Terms of Service regarding mali
     }, 600);
   };
 
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages, isGenerating]);
+
+  const copySnippet = (id: string, text: string) => {
+    navigator.clipboard?.writeText(text);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
   return (
-    <div className="space-y-6 max-w-7xl mx-auto flex flex-col h-[calc(100vh-140px)]">
-      {/* Header */}
-      <div className="p-4 md:p-6 rounded-xl bg-[#090e1c] border border-cyan-500/20 shadow-[0_0_20px_rgba(6,182,212,0.05)] shrink-0">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <div className="p-2 rounded-lg bg-cyan-950/60 border border-cyan-500/30 text-cyan-400">
-                <Bot className="w-5 h-5" />
-              </div>
-              <h2 className="text-xl font-bold text-white tracking-tight">
-                SENTINEL AI Security Copilot
-              </h2>
-            </div>
-            <p className="text-xs text-slate-400 mt-1">
-              Interactive cyber threat analysis engine · Designed for Gemini 2.5 Flash LLM integration
-            </p>
-          </div>
+    <div className="soc-page h-[calc(100vh-6rem)] min-h-[560px] lg:h-[calc(100vh-6.5rem)]">
+      <PageHeader
+        icon={Bot}
+        title="SENTINEL AI security copilot"
+        description="Interactive threat-analysis assistant. Responses in this build are scripted locally; no language model is connected."
+        actions={<DataTag kind="local" label="Scripted responses · no model connected" />}
+      />
 
-          <div className="flex items-center gap-2">
-            <span className="px-2.5 py-1 text-xs font-mono rounded bg-cyan-950/60 text-cyan-300 border border-cyan-500/30">
-              Gemini API Connector Ready
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Chat Messages Log */}
-      <div className="flex-1 overflow-y-auto p-4 md:p-6 rounded-xl bg-[#070b16] border border-slate-800 space-y-4">
-        {messages.map((m) => (
-          <div
-            key={m.id}
-            className={`flex items-start gap-3 ${
-              m.sender === 'user' ? 'justify-end' : 'justify-start'
-            }`}
-          >
-            {m.sender === 'assistant' && (
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shrink-0 text-black">
-                <Bot className="w-4 h-4" />
-              </div>
-            )}
-
-            <div
-              className={`max-w-2xl p-4 rounded-xl text-xs leading-relaxed space-y-3 ${
-                m.sender === 'user'
-                  ? 'bg-cyan-600 text-white font-medium'
-                  : 'bg-[#0b1122] border border-slate-800 text-slate-200'
-              }`}
-            >
-              <div className="flex items-center justify-between gap-4 pb-1 border-b border-white/10 text-[10px] text-slate-400 font-mono">
-                <span>{m.sender === 'user' ? 'Analyst' : 'Sentinel AI Assistant'}</span>
-                <span>{m.timestamp}</span>
-              </div>
-
-              <div className="whitespace-pre-line">{m.content}</div>
-
-              {m.codeSnippet && (
-                <div className="p-3 rounded-lg bg-[#050811] border border-slate-800 font-mono text-[11px] text-cyan-300 overflow-x-auto">
-                  <pre>{m.codeSnippet}</pre>
+      <section className="soc-panel flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div ref={scrollRef} className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
+          {messages.map((m) => {
+            const isUser = m.sender === 'user';
+            return (
+              <div key={m.id} className={`flex items-start gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}>
+                {!isUser && (
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-soc-forest-2 bg-soc-forest text-soc-accent-hi">
+                    <Bot className="h-3.5 w-3.5" />
+                  </div>
+                )}
+                <div
+                  className={`max-w-3xl rounded border px-3.5 py-2.5 text-xs leading-relaxed ${
+                    isUser ? 'border-soc-forest-2 bg-soc-forest/50 text-soc-text' : 'border-soc-line bg-soc-raised text-soc-text-2'
+                  }`}
+                >
+                  <div className="mb-1.5 flex items-center justify-between gap-6 font-mono text-[10px] uppercase tracking-wider text-soc-muted">
+                    <span>{isUser ? 'Analyst' : 'Sentinel AI assistant'}</span>
+                    <span>{m.timestamp}</span>
+                  </div>
+                  {isUser ? <div className="whitespace-pre-line">{m.content}</div> : <FormattedMessage content={m.content} />}
+                  {m.codeSnippet && (
+                    <div className="soc-well mt-2.5 overflow-hidden">
+                      <div className="flex items-center justify-between border-b border-soc-line px-2.5 py-1">
+                        <span className="soc-label">Snippet</span>
+                        <button
+                          onClick={() => copySnippet(m.id, m.codeSnippet || '')}
+                          className="flex items-center gap-1 font-mono text-[10px] text-soc-muted hover:text-soc-text"
+                        >
+                          {copiedId === m.id ? <Check className="h-3 w-3 text-soc-accent" /> : <Copy className="h-3 w-3" />}
+                          {copiedId === m.id ? 'Copied' : 'Copy'}
+                        </button>
+                      </div>
+                      <pre className="overflow-x-auto p-2.5 font-mono text-[11px] text-soc-text-2">{m.codeSnippet}</pre>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-
-            {m.sender === 'user' && (
-              <div className="w-8 h-8 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center shrink-0 text-slate-300 font-mono text-xs font-bold">
-                SOC
+                {isUser && (
+                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-soc-line-strong bg-soc-raised font-mono text-[9px] font-semibold text-soc-text-2">
+                    SOC
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-        ))}
+            );
+          })}
 
-        {isGenerating && (
-          <div className="flex items-center gap-2 text-xs font-mono text-cyan-400 p-3 rounded-lg bg-[#090e1c] w-fit">
-            <Sparkles className="w-4 h-4 animate-spin" />
-            <span>Sentinel AI reasoning over threat context...</span>
-          </div>
-        )}
-      </div>
+          {isGenerating && (
+            <div className="flex w-fit items-center gap-2 rounded border border-soc-line bg-soc-raised px-3 py-2 font-mono text-[11px] text-soc-text-2">
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-soc-accent" />
+              Sentinel AI reasoning over threat context…
+            </div>
+          )}
+        </div>
 
-      {/* Suggested Prompts & Input Bar */}
-      <div className="shrink-0 space-y-2">
-        <div className="flex flex-wrap items-center gap-1.5 text-xs">
-          <span className="text-slate-500 font-mono text-[11px]">Quick Queries:</span>
-          {promptSuggestions.map((prompt) => (
-            <button
-              key={prompt}
-              onClick={() => handleSend(prompt)}
-              className="px-2.5 py-1 rounded bg-[#090e1c] hover:bg-[#121c38] border border-slate-800 text-slate-300 hover:text-cyan-300 text-[11px] transition-colors"
-            >
-              {prompt}
+        <div className="shrink-0 space-y-2 border-t border-soc-line bg-soc-surface px-4 py-3">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="soc-label mr-1">Quick queries</span>
+            {promptSuggestions.map((prompt) => (
+              <button
+                key={prompt}
+                onClick={() => handleSend(prompt)}
+                disabled={isGenerating}
+                className="soc-chip hover:border-soc-forest-2 hover:text-soc-text disabled:opacity-50"
+              >
+                {prompt}
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={inputVal}
+              onChange={(e) => setInputVal(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+              aria-label="Message the assistant"
+              placeholder="Ask about threat mitigation, cipher suites or forensic analysis…"
+              className="soc-input h-9 flex-1 font-sans text-[13px]"
+            />
+            <button onClick={() => handleSend()} disabled={!inputVal.trim() || isGenerating} className="soc-btn soc-btn-primary h-9">
+              <Send className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Submit</span>
             </button>
-          ))}
+          </div>
+          <p className="flex items-center gap-1.5 text-[10.5px] text-soc-muted">
+            <Info className="h-3 w-3" />
+            Guidance is illustrative. Validate rules and remediation steps before production use.
+          </p>
         </div>
-
-        <div className="flex items-center gap-2">
-          <input
-            type="text"
-            value={inputVal}
-            onChange={(e) => setInputVal(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-            placeholder="Ask Sentinel AI Copilot regarding threat mitigation, cipher suites, or forensic analysis..."
-            className="flex-1 bg-[#090e1c] border border-slate-800 rounded-lg px-4 py-3 text-xs md:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400 font-sans"
-          />
-          <button
-            onClick={() => handleSend()}
-            disabled={!inputVal.trim() || isGenerating}
-            className="px-4 py-3 rounded-lg bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-black font-semibold text-xs md:text-sm flex items-center gap-1.5 transition-all disabled:opacity-50"
-          >
-            <Send className="w-4 h-4" />
-            <span className="hidden sm:inline">Submit</span>
-          </button>
-        </div>
-      </div>
+      </section>
     </div>
   );
 };

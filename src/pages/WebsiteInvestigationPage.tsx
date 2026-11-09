@@ -1,10 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Search,
   Globe,
   Shield,
-  ShieldAlert,
-  ShieldCheck,
   AlertTriangle,
   Server,
   Lock,
@@ -15,14 +13,15 @@ import {
   CheckCircle2,
   XCircle,
   Copy,
-  RefreshCw,
   Info,
   Sparkles,
   Terminal,
   Activity,
-  ArrowRight,
   Ban,
   Check,
+  Loader2,
+  Circle,
+  ChevronRight,
 } from 'lucide-react';
 import { PageId, InvestigationRecord } from '../types';
 import {
@@ -31,11 +30,12 @@ import {
   SAMPLE_SECURITY_HEADERS,
   SAMPLE_TLS_CERTIFICATE,
   SAMPLE_PHISHING_VECTORS,
-  DEMO_PRESET_TARGETS,
 } from '../data/mockData';
 import { InvestigationSearchBar } from '../components/common/InvestigationSearchBar';
 import { StatusBadge, SeverityBadge } from '../components/common/StatusBadge';
 import { SeverityBar } from '../components/common/SeverityBar';
+import { PageHeader, Panel, DataTag, KV, Notice, Segmented, EmptyState } from '../components/ui/Soc';
+import { SEVERITY_STYLES, normalizeSeverity, verdictSeverity } from '../lib/severity';
 
 export interface RealInvestigationResponse {
   success: boolean;
@@ -111,13 +111,162 @@ interface WebsiteInvestigationPageProps {
   onOpenDemoNotice: () => void;
 }
 
+type TabId = 'overview' | 'dns' | 'tls' | 'headers' | 'whois' | 'raw';
+
+/* ------------------------------------------------------------------ */
+/* Local building blocks                                               */
+/* ------------------------------------------------------------------ */
+
+const DossierTabs: React.FC<{
+  active: TabId;
+  onChange: (t: TabId) => void;
+  whoisLabel: string;
+}> = ({ active, onChange, whoisLabel }) => {
+  const tabs: Array<{ id: TabId; label: string; icon: React.ComponentType<{ className?: string }> }> = [
+    { id: 'overview', label: 'Threat Overview', icon: Shield },
+    { id: 'dns', label: 'DNS Infrastructure', icon: Server },
+    { id: 'tls', label: 'TLS / SSL Certificate', icon: Lock },
+    { id: 'headers', label: 'Security Headers', icon: Layers },
+    { id: 'whois', label: whoisLabel, icon: Globe },
+    { id: 'raw', label: 'Forensic JSON', icon: FileCode },
+  ];
+  return (
+    <div className="soc-panel flex items-center overflow-x-auto px-2" role="tablist">
+      {tabs.map((tab) => {
+        const Icon = tab.icon;
+        return (
+          <button
+            key={tab.id}
+            role="tab"
+            aria-selected={active === tab.id}
+            data-active={active === tab.id}
+            onClick={() => onChange(tab.id)}
+            className="soc-tab"
+          >
+            <Icon className="h-3.5 w-3.5" />
+            {tab.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+};
+
+const VerdictBanner: React.FC<{
+  caseId: string;
+  verdict: string;
+  severity: string;
+  timestamp: string;
+  target: string;
+  provenance: React.ReactNode;
+  meta?: React.ReactNode;
+  vectors: React.ReactNode;
+  trustScore: number;
+  onNavigate: (page: PageId) => void;
+}> = ({ caseId, verdict, severity, timestamp, target, provenance, meta, vectors, trustScore, onNavigate }) => {
+  const sevKey = verdictSeverity(verdict);
+  return (
+    <section className="soc-panel relative overflow-hidden">
+      <span className={`absolute inset-y-0 left-0 w-[3px] ${SEVERITY_STYLES[sevKey].bar}`} aria-hidden />
+      <div className="flex flex-col gap-4 p-4 pl-5 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0 flex-1 space-y-2">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="font-mono text-soc-muted">{caseId}</span>
+            <StatusBadge verdict={verdict} />
+            <SeverityBadge level={severity} />
+            {provenance}
+            <span className="font-mono text-[11px] text-soc-muted">{timestamp}</span>
+          </div>
+          <h3 className="break-all font-mono text-lg font-semibold tracking-tight text-soc-text md:text-xl">{target}</h3>
+          {meta}
+          <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+            <span className="soc-label mr-1">Classified vectors</span>
+            {vectors}
+          </div>
+        </div>
+
+        <div className="w-full shrink-0 space-y-3 rounded border border-soc-line bg-soc-well p-3 lg:w-72">
+          <SeverityBar score={trustScore} />
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={() => onNavigate('blockchain-verification')} className="soc-btn h-7 text-[11px]">
+              <Blocks className="h-3.5 w-3.5" />
+              Ledger proof
+            </button>
+            <button onClick={() => onNavigate('reports')} className="soc-btn h-7 text-[11px]">
+              <Download className="h-3.5 w-3.5" />
+              Report
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+};
+
+const HeaderStatusPill: React.FC<{ status: string }> = ({ status }) => {
+  const s = status.toLowerCase();
+  const sev = s === 'present' ? 'clean' : s === 'misconfigured' ? 'medium' : 'critical';
+  const st = SEVERITY_STYLES[sev];
+  return (
+    <span className={`rounded-[3px] border px-1.5 py-[1px] font-mono text-[10px] font-semibold uppercase tracking-wider ${st.bg} ${st.border} ${st.text}`}>
+      {status}
+    </span>
+  );
+};
+
+const SecurityHeadersTable: React.FC = () => (
+  <div className="overflow-x-auto">
+    <table className="soc-table">
+      <thead>
+        <tr>
+          <th>Header</th>
+          <th>Status</th>
+          <th>Severity</th>
+          <th>Current value</th>
+          <th>Recommendation</th>
+        </tr>
+      </thead>
+      <tbody>
+        {SAMPLE_SECURITY_HEADERS.map((h) => (
+          <tr key={h.name}>
+            <td className="whitespace-nowrap font-mono font-medium text-soc-text">{h.name}</td>
+            <td>
+              <HeaderStatusPill status={h.status} />
+            </td>
+            <td>
+              <SeverityBadge level={h.severity} />
+            </td>
+            <td className="max-w-[200px] truncate font-mono text-[11px]">{h.value || <span className="text-soc-muted">—</span>}</td>
+            <td className="min-w-[260px] text-[11px] leading-relaxed">{h.recommendation}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+);
+
+const RecordList: React.FC<{ title: string; items: React.ReactNode[]; empty: string }> = ({ title, items, empty }) => (
+  <div className="soc-well p-3">
+    <div className="soc-label mb-2">{title}</div>
+    {items.length > 0 ? (
+      <ul className="max-h-48 space-y-1 overflow-y-auto font-mono text-[11px]">{items}</ul>
+    ) : (
+      <p className="font-mono text-[11px] text-soc-muted">{empty}</p>
+    )}
+  </div>
+);
+
+/* ------------------------------------------------------------------ */
+/* Page                                                                */
+/* ------------------------------------------------------------------ */
+
 export const WebsiteInvestigationPage: React.FC<WebsiteInvestigationPageProps> = ({
   currentTarget,
   onSelectTarget,
   onNavigate,
   onOpenDemoNotice,
 }) => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'dns' | 'tls' | 'headers' | 'whois' | 'raw'>('overview');
+  const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [analysisStep, setAnalysisStep] = useState<number>(0);
   const [copiedHash, setCopiedHash] = useState<boolean>(false);
@@ -131,37 +280,36 @@ export const WebsiteInvestigationPage: React.FC<WebsiteInvestigationPageProps> =
     isBlockedBySsrf?: boolean;
     isMalformed?: boolean;
     target?: string;
+    status?: number;
   } | null>(null);
 
-  // Fallback demo matched record for demo tab / comparison
-  const matchedDemoRecord: InvestigationRecord =
-    SAMPLE_INVESTIGATIONS.find(
-      (r) =>
-        r.target.toLowerCase().includes(currentTarget.toLowerCase()) ||
-        currentTarget.toLowerCase().includes(r.target.split(' ')[0].toLowerCase())
-    ) || {
-      id: `INV-DEMO-${Math.floor(1000 + Math.random() * 9000)}`,
-      target: currentTarget || 'secure-login-chase-update.info',
-      targetType: 'domain',
-      verdict: currentTarget.includes('clean') || currentTarget.includes('stripe') || currentTarget.includes('github')
-        ? 'Clean'
-        : 'Malicious',
-      severity: currentTarget.includes('clean') || currentTarget.includes('stripe') || currentTarget.includes('github')
-        ? 'clean'
-        : 'critical',
-      trustScore: currentTarget.includes('clean') || currentTarget.includes('stripe') || currentTarget.includes('github')
-        ? 98
-        : 14,
-      categories: ['Simulated Target Evaluation', 'Punycode / Homoglyph Check', 'Heuristic Flagging'],
-      timestamp: '2026-11-07 18:05:12 UTC',
-      investigator: 'Analyst SOC-03',
-      ipAddress: '194.26.29.114',
-      country: 'Seychelles',
-      countryCode: 'SC',
-      asn: 'AS208657 - Fenix Host LTD',
-      tlsStatus: 'Self-Signed',
-      hashProof: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
-    };
+  // Fallback demo matched record for demo tab / comparison.
+  // Memoised so the generated demo case ID stays stable between renders.
+  const matchedDemoRecord: InvestigationRecord = useMemo(() => {
+    const t = currentTarget.toLowerCase();
+    const isCleanish = t.includes('clean') || t.includes('stripe') || t.includes('github');
+    return (
+      SAMPLE_INVESTIGATIONS.find(
+        (r) => r.target.toLowerCase().includes(t) || t.includes(r.target.split(' ')[0].toLowerCase())
+      ) || {
+        id: `INV-DEMO-${Math.floor(1000 + Math.random() * 9000)}`,
+        target: currentTarget || 'secure-login-chase-update.info',
+        targetType: 'domain',
+        verdict: isCleanish ? 'Clean' : 'Malicious',
+        severity: isCleanish ? 'clean' : 'critical',
+        trustScore: isCleanish ? 98 : 14,
+        categories: ['Simulated Target Evaluation', 'Punycode / Homoglyph Check', 'Heuristic Flagging'],
+        timestamp: '2026-11-07 18:05:12 UTC',
+        investigator: 'Analyst SOC-03',
+        ipAddress: '194.26.29.114',
+        country: 'Seychelles',
+        countryCode: 'SC',
+        asn: 'AS208657 - Fenix Host LTD',
+        tlsStatus: 'Self-Signed',
+        hashProof: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+      }
+    );
+  }, [currentTarget]);
 
   // Run real investigation against backend API
   const handleStartInvestigation = async (target: string) => {
@@ -196,6 +344,7 @@ export const WebsiteInvestigationPage: React.FC<WebsiteInvestigationPageProps> =
           isBlockedBySsrf: Boolean(errorJson.isBlockedBySsrf),
           isMalformed: Boolean(errorJson.isMalformed),
           target: errorJson.target || target,
+          status: response.status,
         });
         setIsAnalyzing(false);
         return;
@@ -221,466 +370,380 @@ export const WebsiteInvestigationPage: React.FC<WebsiteInvestigationPageProps> =
     setTimeout(() => setCopiedHash(false), 2000);
   };
 
+  const copyJson = (value: unknown) => {
+    navigator.clipboard?.writeText(JSON.stringify(value, null, 2));
+    setCopiedJson(true);
+    setTimeout(() => setCopiedJson(false), 2000);
+  };
+
   const analysisStepsLabels = [
-    'Parsing & normalizing FQDN, validating SSRF safety bounds...',
-    'Performing multi-vector DNS zone resolution (A, AAAA, MX, TXT, NS)...',
-    'Executing lexical heuristics, homoglyph detection & keyword correlation...',
-    'Querying external threat feeds (Google Safe Browsing & URLhaus)...',
-    'Calculating transparent trust score deductions & synthesizing Gemini SOC analysis...',
+    'Parsing & normalizing FQDN, validating SSRF safety bounds',
+    'Multi-vector DNS zone resolution (A, AAAA, MX, TXT, NS)',
+    'Lexical heuristics, homoglyph detection & keyword correlation',
+    'Querying external threat feeds (Google Safe Browsing & URLhaus)',
+    'Trust score deductions & AI analyst explanation',
   ];
 
+  const errorBadge = apiError
+    ? apiError.isBlockedBySsrf
+      ? `BLOCKED${apiError.status ? ` · HTTP ${apiError.status}` : ''}`
+      : apiError.status
+      ? `HTTP ${apiError.status}`
+      : 'NETWORK ERROR'
+    : '';
+
+  // Defensive accessors: tolerate partial backend payloads without crashing the dossier.
+  const live = realScanResult;
+  const liveFindings = live?.findings ?? [];
+  const liveFeeds = live?.threatFeeds ?? [];
+  const liveDeductions = live?.scoreAssessment?.deductionBreakdown ?? [];
+  const liveDns = live?.dns ?? {
+    resolves: false,
+    aRecords: [],
+    aaaaRecords: [],
+    mxRecords: [],
+    txtRecords: [],
+    nsRecords: [],
+    spfConfigured: false,
+  };
+
+  const showLive = !isAnalyzing && !!live && activeScanMode === 'live';
+  const showDemo = !isAnalyzing && (!live || activeScanMode === 'demo');
+
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
-      {/* Prominent Investigation Search Bar */}
-      <div className="p-5 md:p-6 rounded-xl bg-[#090e1c] border border-cyan-500/20 shadow-[0_0_20px_rgba(6,182,212,0.05)]">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
-          <div>
-            <h2 className="text-lg font-bold text-white tracking-tight flex items-center gap-2">
-              <Search className="w-5 h-5 text-cyan-400" />
-              Website &amp; Domain Threat Investigation
-            </h2>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Submit any full URL, hostname, or IP for deep multi-vector inspection
-            </p>
-          </div>
-
-          {/* Real vs Demo Mode Indicator & Controls */}
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] font-mono text-slate-400">Engine Mode:</span>
-            {realScanResult && activeScanMode === 'live' ? (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-mono font-bold bg-cyan-950/70 text-cyan-300 border border-cyan-500/40 shadow-[0_0_12px_rgba(6,182,212,0.2)]">
-                <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
-                REAL ENGINE (ACTIVE)
-              </span>
+    <div className="soc-page">
+      {/* Investigation input */}
+      <PageHeader
+        icon={Search}
+        title="Website & domain threat investigation"
+        description="Submit a full URL, hostname or IP for multi-vector inspection."
+        actions={
+          <>
+            <span className="soc-label">Engine mode</span>
+            {live && activeScanMode === 'live' ? (
+              <DataTag kind="live" label="Real engine" />
             ) : (
-              <span className="px-2.5 py-1 rounded text-[11px] font-mono font-bold bg-amber-950/50 text-amber-300 border border-amber-500/30">
-                DEMO SIMULATION
-              </span>
+              <DataTag kind="simulated" label="Demo simulation" />
             )}
-
-            {realScanResult && (
-              <div className="flex items-center rounded-lg bg-slate-900 border border-slate-800 p-0.5 ml-1">
-                <button
-                  onClick={() => setActiveScanMode('live')}
-                  className={`px-2 py-0.5 text-[10px] font-mono rounded font-semibold transition-colors ${
-                    activeScanMode === 'live'
-                      ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  Live Scan
-                </button>
-                <button
-                  onClick={() => setActiveScanMode('demo')}
-                  className={`px-2 py-0.5 text-[10px] font-mono rounded font-semibold transition-colors ${
-                    activeScanMode === 'demo'
-                      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  Demo Preset
-                </button>
-              </div>
+            {live && (
+              <Segmented
+                ariaLabel="Result source"
+                value={activeScanMode}
+                onChange={setActiveScanMode}
+                options={[
+                  { value: 'live', label: 'Live scan' },
+                  { value: 'demo', label: 'Demo preset' },
+                ]}
+              />
             )}
-          </div>
-        </div>
-
+          </>
+        }
+      >
         <InvestigationSearchBar
           onInvestigate={handleStartInvestigation}
-          initialValue={currentTarget || (realScanResult ? realScanResult.parsedUrl.rawInput : matchedDemoRecord.target)}
+          initialValue={currentTarget || (live ? live.parsedUrl.rawInput : matchedDemoRecord.target)}
         />
-      </div>
+      </PageHeader>
 
-      {/* SSRF & Input Validation Security Error Banner */}
+      {/* Request / SSRF error */}
       {apiError && (
-        <div
-          className={`p-5 rounded-xl border ${
-            apiError.isBlockedBySsrf
-              ? 'bg-rose-950/40 border-rose-500/60 shadow-[0_0_25px_rgba(244,63,94,0.15)] text-rose-200'
-              : apiError.isMalformed
-              ? 'bg-amber-950/40 border-amber-500/50 shadow-[0_0_25px_rgba(245,158,11,0.15)] text-amber-200'
-              : 'bg-slate-900/90 border-slate-700 text-slate-200'
+        <section
+          className={`soc-panel relative overflow-hidden ${
+            apiError.isBlockedBySsrf ? 'border-sev-critical/40' : apiError.isMalformed ? 'border-sev-medium/40' : 'border-sev-high/35'
           }`}
+          role="alert"
         >
-          <div className="flex items-start gap-3.5">
+          <span
+            className={`absolute inset-y-0 left-0 w-[3px] ${
+              apiError.isBlockedBySsrf ? 'bg-sev-critical' : apiError.isMalformed ? 'bg-sev-medium' : 'bg-sev-high'
+            }`}
+          />
+          <div className="flex items-start gap-3 p-4 pl-5">
             {apiError.isBlockedBySsrf ? (
-              <Ban className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+              <Ban className="mt-0.5 h-4 w-4 shrink-0 text-sev-critical" />
             ) : apiError.isMalformed ? (
-              <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-sev-medium" />
             ) : (
-              <XCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+              <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-sev-high" />
             )}
-            <div className="flex-1 space-y-1.5">
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-sm text-white">
+            <div className="min-w-0 flex-1 space-y-1.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-semibold text-soc-text">
                   {apiError.isBlockedBySsrf
-                    ? 'SSRF Security Violation: Prohibited Address Space'
+                    ? 'SSRF security violation: prohibited address space'
                     : apiError.isMalformed
-                    ? 'Malformed URL Input'
-                    : 'Investigation Request Error'}
+                    ? 'Malformed URL input'
+                    : 'Investigation request error'}
                 </span>
-                <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-black/40 border border-current">
-                  STATUS 403 / BLOCKED
-                </span>
+                <span className="soc-chip">{errorBadge}</span>
+                {apiError.target && <span className="truncate font-mono text-[11px] text-soc-muted">{apiError.target}</span>}
               </div>
-              <p className="text-xs text-slate-300 leading-relaxed">{apiError.message}</p>
+              <p className="text-xs leading-relaxed text-soc-text-2">{apiError.message}</p>
               {apiError.isBlockedBySsrf && (
-                <p className="text-[11px] font-mono text-rose-300/80 pt-1">
-                  SENTINEL AI strictly enforces SSRF RFC-1918 / RFC-3927 guardrails. Outgoing connections to private networks, 127.0.0.1, localhost, and link-local cloud metadata endpoints (169.254.169.254) are rejected by security design.
+                <p className="font-mono text-[11px] leading-relaxed text-soc-muted">
+                  SENTINEL AI enforces SSRF RFC-1918 / RFC-3927 guardrails. Outgoing connections to private networks,
+                  127.0.0.1, localhost and link-local cloud metadata endpoints (169.254.169.254) are rejected by design.
                 </p>
               )}
-              <div className="pt-2 flex items-center gap-3">
-                <button
-                  onClick={() => handleStartInvestigation('https://github.com')}
-                  className="px-3 py-1 text-xs font-mono rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700 transition-colors"
-                >
-                  Test Legitimate Target (github.com)
+              {apiError.status === 404 && (
+                <p className="text-[11px] text-soc-muted">
+                  The backend did not expose <code className="font-mono text-soc-text-2">POST /api/investigate</code>. Check that the
+                  investigation route is mounted on the server.
+                </p>
+              )}
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                <button onClick={() => handleStartInvestigation('https://github.com')} className="soc-btn h-7 text-[11px]">
+                  Test legitimate target (github.com)
                 </button>
-                <button
-                  onClick={() => setApiError(null)}
-                  className="px-3 py-1 text-xs font-mono rounded bg-black/40 hover:bg-black/60 text-slate-400 transition-colors"
-                >
-                  Dismiss Alert
+                <button onClick={() => setApiError(null)} className="soc-btn soc-btn-ghost h-7 text-[11px]">
+                  Dismiss
                 </button>
               </div>
             </div>
           </div>
-        </div>
+        </section>
       )}
 
-      {/* Live Pipeline Analysis Loading Indicator */}
+      {/* Live pipeline progress */}
       {isAnalyzing && (
-        <div className="p-8 rounded-xl bg-[#090e1c] border border-cyan-500/40 flex flex-col items-center justify-center text-center space-y-4 shadow-[0_0_30px_rgba(6,182,212,0.1)] animate-fade-in">
-          <div className="relative">
-            <div className="w-16 h-16 rounded-full border-2 border-slate-800 border-t-cyan-400 animate-spin" />
-            <Shield className="w-7 h-7 text-cyan-400 absolute inset-0 m-auto animate-pulse" />
-          </div>
-          <div>
-            <div className="flex items-center justify-center gap-2">
-              <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-cyan-950 text-cyan-300 border border-cyan-500/30">
-                ACTIVE SOC ENGINE
-              </span>
-              <h3 className="text-base font-bold text-white">
-                Live URL Investigation: <span className="font-mono text-cyan-300">{currentTarget}</span>
-              </h3>
-            </div>
-            <p className="text-xs font-mono text-cyan-400 mt-2">
-              {analysisStepsLabels[analysisStep - 1] || 'Executing live threat vector inspection...'}
-            </p>
-          </div>
-          <div className="w-72 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+        <Panel
+          title={
+            <span className="normal-case tracking-normal">
+              Live URL investigation · <span className="font-mono text-soc-accent-hi">{currentTarget}</span>
+            </span>
+          }
+          icon={Activity}
+          actions={<DataTag kind="live" label="Engine running" />}
+        >
+          <div className="relative mb-4 h-1 w-full overflow-hidden rounded-sm bg-soc-line">
             <div
-              className="h-full bg-gradient-to-r from-cyan-500 to-blue-500 transition-all duration-300"
+              className="h-full rounded-sm bg-soc-accent transition-all duration-300"
               style={{ width: `${(analysisStep / 5) * 100}%` }}
             />
           </div>
-          <div className="flex items-center gap-4 text-[11px] font-mono text-slate-400">
-            <span>DNS Lookup: {analysisStep > 1 ? '✓ Complete' : 'Resolving...'}</span>
-            <span>·</span>
-            <span>Heuristics: {analysisStep > 2 ? '✓ Analyzed' : 'Evaluating...'}</span>
-            <span>·</span>
-            <span>Threat Feeds: {analysisStep > 3 ? '✓ Checked' : 'Querying...'}</span>
-          </div>
-        </div>
-      )}
-
-      {/* Real Scan Output Dossier */}
-      {!isAnalyzing && realScanResult && activeScanMode === 'live' && (
-        <div className="space-y-6">
-          {/* Verdict Banner Card (Real Result) */}
-          <div
-            className={`p-6 rounded-xl border ${
-              realScanResult.scoreAssessment.verdict === 'Malicious'
-                ? 'bg-[#150a10] border-rose-500/50 shadow-[0_0_30px_rgba(244,63,94,0.15)]'
-                : realScanResult.scoreAssessment.verdict === 'Suspicious'
-                ? 'bg-[#15110a] border-amber-500/50 shadow-[0_0_30px_rgba(245,158,11,0.15)]'
-                : 'bg-[#081510] border-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.15)]'
-            }`}
-          >
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-              <div className="space-y-3">
-                <div className="flex flex-wrap items-center gap-2.5">
-                  <span className="font-mono text-xs text-slate-400">{realScanResult.id}</span>
-                  <span className="text-slate-600">·</span>
-                  <StatusBadge verdict={realScanResult.scoreAssessment.verdict} />
-                  <SeverityBadge level={realScanResult.scoreAssessment.severity} />
-                  <span className="text-slate-600">·</span>
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded text-[10px] font-mono font-bold bg-cyan-950/80 text-cyan-300 border border-cyan-500/50 shadow-[0_0_10px_rgba(6,182,212,0.3)]">
-                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
-                    LIVE SCAN ENGINE RESULT
-                  </span>
-                  <span className="text-slate-600">·</span>
-                  <span className="text-xs text-slate-400 font-mono">{realScanResult.timestamp}</span>
-                </div>
-
-                <div>
-                  <h3 className="text-xl md:text-2xl font-bold font-mono text-white tracking-tight break-all">
-                    {realScanResult.parsedUrl.normalizedUrl}
-                  </h3>
-                  {realScanResult.parsedUrl.hostname !== realScanResult.parsedUrl.rawInput && (
-                    <p className="text-xs font-mono text-slate-400 mt-1">
-                      Target Hostname: <span className="text-cyan-300">{realScanResult.parsedUrl.hostname}</span>
-                      {realScanResult.parsedUrl.subdomain && (
-                        <span> (Subdomain: {realScanResult.parsedUrl.subdomain})</span>
-                      )}
-                      <span> · TLD: .{realScanResult.parsedUrl.tld || 'none'}</span>
-                    </p>
-                  )}
-
-                  <div className="flex flex-wrap items-center gap-2 mt-2.5 text-xs text-slate-300">
-                    <span className="font-semibold text-slate-400">Classified Vectors:</span>
-                    {realScanResult.findings.map((f) => (
-                      <span
-                        key={f.id}
-                        className={`px-2 py-0.5 rounded font-mono text-[11px] border ${
-                          f.severity === 'critical'
-                            ? 'bg-rose-950/70 border-rose-500/40 text-rose-200'
-                            : f.severity === 'high'
-                            ? 'bg-amber-950/70 border-amber-500/40 text-amber-200'
-                            : f.severity === 'medium'
-                            ? 'bg-amber-950/40 border-amber-500/30 text-amber-300'
-                            : 'bg-emerald-950/50 border-emerald-500/40 text-emerald-300'
-                        }`}
-                      >
-                        {f.title}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* Gauge and Quick Action Buttons */}
-              <div className="w-full lg:w-72 space-y-3 p-4 rounded-lg bg-black/40 border border-slate-800">
-                <SeverityBar score={realScanResult.scoreAssessment.trustScore} />
-
-                <div className="pt-2 flex items-center justify-between gap-2 text-xs">
-                  <button
-                    onClick={() => onNavigate('blockchain-verification')}
-                    className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded bg-cyan-950/60 hover:bg-cyan-900/60 border border-cyan-500/30 text-cyan-300 font-medium transition-colors"
-                  >
-                    <Blocks className="w-3.5 h-3.5" />
-                    <span>Ledger Proof</span>
-                  </button>
-
-                  <button
-                    onClick={() => onNavigate('reports')}
-                    className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium transition-colors"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>Report</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Dossier Tabs Navigation */}
-          <div className="flex items-center gap-1 p-1 bg-[#090e1c] rounded-xl border border-slate-800 overflow-x-auto">
-            {[
-              { id: 'overview', label: 'Threat Overview', icon: Shield },
-              { id: 'dns', label: 'DNS Infrastructure', icon: Server },
-              { id: 'tls', label: 'TLS / SSL Certificate', icon: Lock },
-              { id: 'headers', label: 'Security Headers', icon: Layers },
-              { id: 'whois', label: 'Geo & Host', icon: Globe },
-              { id: 'raw', label: 'Forensic JSON', icon: FileCode },
-            ].map((tab) => {
-              const Icon = tab.icon;
-              const isActive = activeTab === tab.id;
+          <ol className="grid grid-cols-1 gap-2 md:grid-cols-5">
+            {analysisStepsLabels.map((label, i) => {
+              const stepNo = i + 1;
+              const done = analysisStep > stepNo;
+              const running = analysisStep === stepNo;
               return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id as any)}
-                  className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
-                    isActive
-                      ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 border border-transparent'
-                  }`}
+                <li
+                  key={label}
+                  className={`soc-well flex items-start gap-2 p-2.5 text-[11px] ${running ? 'border-soc-forest-2' : ''}`}
                 >
-                  <Icon className="w-3.5 h-3.5" />
-                  <span>{tab.label}</span>
-                </button>
+                  {done ? (
+                    <CheckCircle2 className="mt-px h-3.5 w-3.5 shrink-0 text-soc-accent" />
+                  ) : running ? (
+                    <Loader2 className="mt-px h-3.5 w-3.5 shrink-0 animate-spin text-soc-accent-hi" />
+                  ) : (
+                    <Circle className="mt-px h-3.5 w-3.5 shrink-0 text-soc-line-strong" />
+                  )}
+                  <div>
+                    <div className="soc-label">Step {stepNo}</div>
+                    <div className={done || running ? 'text-soc-text' : 'text-soc-muted'}>{label}</div>
+                  </div>
+                </li>
               );
             })}
-          </div>
+          </ol>
+        </Panel>
+      )}
+
+      {/* ============================ LIVE RESULT ============================ */}
+      {showLive && live && (
+        <div className="space-y-4">
+          <VerdictBanner
+            caseId={live.id}
+            verdict={live.scoreAssessment.verdict}
+            severity={live.scoreAssessment.severity}
+            timestamp={live.timestamp}
+            target={live.parsedUrl.normalizedUrl}
+            trustScore={live.scoreAssessment.trustScore}
+            onNavigate={onNavigate}
+            provenance={<DataTag kind="live" label="Live scan engine result" />}
+            meta={
+              live.parsedUrl.hostname !== live.parsedUrl.rawInput && (
+                <p className="font-mono text-[11px] text-soc-muted">
+                  Hostname <span className="text-soc-text-2">{live.parsedUrl.hostname}</span>
+                  {live.parsedUrl.subdomain && <span> · subdomain {live.parsedUrl.subdomain}</span>}
+                  <span> · TLD .{live.parsedUrl.tld || 'none'}</span>
+                </p>
+              )
+            }
+            vectors={
+              liveFindings.length > 0 ? (
+                liveFindings.map((f) => {
+                  const st = SEVERITY_STYLES[normalizeSeverity(f.severity)];
+                  return (
+                    <span key={f.id} className={`rounded-[3px] border px-1.5 py-[1px] font-mono text-[10.5px] ${st.bg} ${st.border} ${st.text}`}>
+                      {f.title}
+                    </span>
+                  );
+                })
+              ) : (
+                <span className="text-[11px] text-soc-muted">No findings reported</span>
+              )
+            }
+          />
+
+          <DossierTabs active={activeTab} onChange={setActiveTab} whoisLabel="Geo & Host" />
 
           {/* Tab 1: Overview */}
           {activeTab === 'overview' && (
-            <div className="space-y-6">
-              {/* Gemini Evidence Explanation Card */}
-              <div className="p-5 md:p-6 rounded-xl bg-[#070c18] border border-cyan-500/30 shadow-[0_0_20px_rgba(6,182,212,0.06)] space-y-3">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
-                  <div className="flex items-center gap-2.5">
-                    <Sparkles className="w-4 h-4 text-cyan-400" />
-                    <h4 className="text-xs font-mono uppercase font-bold text-white tracking-wider">
-                      Gemini SOC Analyst Evidence Explanation
-                    </h4>
-                  </div>
-                  {realScanResult.geminiExplanation?.status === 'available' ? (
-                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-mono font-bold bg-cyan-950 text-cyan-300 border border-cyan-500/40">
-                      <CheckCircle2 className="w-3 h-3 text-cyan-400" />
-                      Model: {realScanResult.geminiExplanation.modelUsed || 'gemini-3.8-flash'}
+            <div className="space-y-4">
+              <Panel
+                title="AI analyst evidence explanation"
+                icon={Sparkles}
+                actions={
+                  live.geminiExplanation?.status === 'available' ? (
+                    <span className="soc-chip">
+                      <CheckCircle2 className="h-3 w-3 text-soc-accent" />
+                      Model: {live.geminiExplanation.modelUsed || 'not reported'}
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded text-[10px] font-mono bg-slate-800 text-slate-300 border border-slate-700">
-                      <Info className="w-3 h-3 text-slate-400" />
-                      Empirical Telemetry Mode
+                    <span className="soc-chip">
+                      <Info className="h-3 w-3" />
+                      Empirical telemetry mode
                     </span>
-                  )}
-                </div>
-
-                <div className="p-4 rounded-lg bg-black/40 border border-slate-800 text-xs font-mono text-slate-200 whitespace-pre-wrap leading-relaxed">
-                  {realScanResult.geminiExplanation?.rawExplanation ||
+                  )
+                }
+              >
+                <div className="soc-well whitespace-pre-wrap p-3 font-mono text-xs leading-relaxed text-soc-text-2">
+                  {live.geminiExplanation?.rawExplanation ||
                     'Empirical findings have been cataloged below by Sentinel AI heuristic and DNS engines.'}
                 </div>
-              </div>
+              </Panel>
 
-              {/* Threat Feeds Status Bar */}
-              <div className="p-4 rounded-xl bg-[#090e1c] border border-slate-800">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-                  <div className="flex items-center gap-2">
-                    <Activity className="w-4 h-4 text-cyan-400" />
-                    <span className="text-xs font-mono uppercase font-bold text-slate-300">
-                      Integrated Threat Intelligence Feeds
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2 text-xs">
-                    {realScanResult.threatFeeds.map((feed) => (
-                      <div
-                        key={feed.source}
-                        className={`px-3 py-1 rounded-lg border font-mono text-[11px] flex items-center gap-2 ${
-                          feed.status === 'clean'
-                            ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300'
-                            : feed.status === 'flagged'
-                            ? 'bg-rose-950/50 border-rose-500/50 text-rose-300'
-                            : 'bg-amber-950/40 border-amber-500/30 text-amber-300'
-                        }`}
-                        title={feed.details}
-                      >
-                        <span className="font-bold">{feed.source}:</span>
-                        <span className="uppercase text-[10px] font-bold">
-                          {feed.status === 'unavailable' ? 'Unavailable / Offline' : feed.status}
+              <Panel title="Integrated threat intelligence feeds" icon={Activity} flush>
+                {liveFeeds.length === 0 ? (
+                  <p className="px-4 py-3 text-xs text-soc-muted">No feed results were returned with this scan.</p>
+                ) : (
+                  <table className="soc-table">
+                    <thead>
+                      <tr>
+                        <th>Feed</th>
+                        <th>Status</th>
+                        <th>Threat type</th>
+                        <th>Details</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {liveFeeds.map((feed) => {
+                        const s = String(feed.status).toLowerCase();
+                        const st = SEVERITY_STYLES[s === 'flagged' ? 'critical' : s === 'clean' ? 'clean' : 'unknown'];
+                        return (
+                          <tr key={feed.source}>
+                            <td className="whitespace-nowrap font-medium text-soc-text">{feed.source}</td>
+                            <td>
+                              <span className={`rounded-[3px] border px-1.5 py-[1px] font-mono text-[10px] font-semibold uppercase ${st.bg} ${st.border} ${st.text}`}>
+                                {s === 'unavailable' ? 'Unavailable' : feed.status}
+                              </span>
+                            </td>
+                            <td className="font-mono text-[11px]">{feed.threatType || '—'}</td>
+                            <td className="text-[11px]">{feed.details}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </Panel>
+
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
+                <Panel
+                  className="lg:col-span-3"
+                  title={`Empirical findings & evidence (${liveFindings.length})`}
+                  actions={<span className="soc-label">Zero-fabrication</span>}
+                  flush
+                >
+                  {liveFindings.length === 0 ? (
+                    <EmptyState icon={CheckCircle2} title="No findings">
+                      The scan engines did not report any risk findings for this target.
+                    </EmptyState>
+                  ) : (
+                    <ul className="divide-y divide-soc-line">
+                      {liveFindings.map((f) => {
+                        const st = SEVERITY_STYLES[normalizeSeverity(f.severity)];
+                        return (
+                          <li key={f.id} className="relative space-y-1.5 px-4 py-3 pl-5 text-xs">
+                            <span className={`absolute inset-y-3 left-0 w-[3px] rounded-r ${st.bar}`} />
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="font-semibold text-soc-text">{f.title}</span>
+                                  <SeverityBadge level={f.severity} />
+                                </div>
+                                <span className="font-mono text-[10px] text-soc-muted">Source: {f.source}</span>
+                              </div>
+                              <div className="shrink-0 text-right font-mono text-[11px]">
+                                <div className="text-soc-text-2">{f.confidence}% conf.</div>
+                                {f.deductionPoints > 0 && <div className="font-semibold text-sev-critical">−{f.deductionPoints} pts</div>}
+                              </div>
+                            </div>
+                            <p className="text-[11px] leading-relaxed text-soc-text-2">{f.description}</p>
+                            <div className="soc-well break-all px-2 py-1.5 font-mono text-[10.5px] text-soc-text-2">
+                              <span className="mr-1.5 text-soc-muted">evidence:</span>
+                              {f.evidence}
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </Panel>
+
+                <div className="space-y-4 lg:col-span-2">
+                  <Panel title="Trust score breakdown">
+                    <div className="space-y-1 font-mono text-xs">
+                      <KV k="Maximum baseline trust" v="100 / 100" vClassName="text-sev-clean" />
+                      {liveDeductions.length === 0 ? (
+                        <div className="flex items-center gap-2 py-3 text-soc-text-2">
+                          <Check className="h-4 w-4 text-sev-clean" />
+                          No risk deductions applied.
+                        </div>
+                      ) : (
+                        liveDeductions.map((item) => (
+                          <div key={item.id} className="soc-kv">
+                            <div className="min-w-0">
+                              <div className="truncate text-soc-text">{item.title}</div>
+                              <div className="text-[10px] text-soc-muted">{item.source}</div>
+                            </div>
+                            <span className="shrink-0 font-semibold text-sev-critical">−{item.pointsDeducted}</span>
+                          </div>
+                        ))
+                      )}
+                      <div className="flex items-center justify-between border-t border-soc-line-strong pt-2">
+                        <span className="font-sans font-semibold text-soc-text">Final computed score</span>
+                        <span
+                          className={`text-base font-semibold ${
+                            live.scoreAssessment.trustScore >= 80
+                              ? 'text-sev-clean'
+                              : live.scoreAssessment.trustScore >= 50
+                              ? 'text-sev-medium'
+                              : 'text-sev-critical'
+                          }`}
+                        >
+                          {live.scoreAssessment.trustScore} / 100
                         </span>
                       </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* Empirical Findings & Transparent Score Deductions */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Findings List */}
-                <div className="p-6 rounded-xl bg-[#090e1c] border border-slate-800 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <h4 className="text-xs font-mono uppercase font-bold text-slate-300 tracking-wider">
-                      Empirical Findings &amp; Evidence ({realScanResult.findings.length})
-                    </h4>
-                    <span className="text-[11px] font-mono text-cyan-400">Zero-Fabrication Guarantee</span>
-                  </div>
-
-                  <div className="space-y-3">
-                    {realScanResult.findings.map((f) => (
-                      <div
-                        key={f.id}
-                        className="p-3.5 rounded-lg bg-[#060a14] border border-slate-800 space-y-2 hover:border-slate-700 transition-colors text-xs"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="space-y-0.5">
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold text-white">{f.title}</span>
-                              <SeverityBadge level={f.severity} />
-                            </div>
-                            <span className="text-[10px] font-mono text-slate-400">Source: {f.source}</span>
-                          </div>
-
-                          <div className="text-right shrink-0">
-                            <span className="text-[10px] font-mono text-cyan-300">
-                              {f.confidence}% Conf.
-                            </span>
-                            {f.deductionPoints > 0 && (
-                              <div className="text-[11px] font-mono font-bold text-rose-400">
-                                -{f.deductionPoints} pts
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        <p className="text-slate-300 text-[11px] leading-relaxed">{f.description}</p>
-
-                        <div className="p-2 rounded bg-black/60 border border-slate-800/80 font-mono text-[10px] text-cyan-300/90 break-all">
-                          <span className="text-slate-500 mr-1.5">Evidence:</span>
-                          {f.evidence}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Transparent Score Deductions */}
-                <div className="p-6 rounded-xl bg-[#090e1c] border border-slate-800 space-y-4">
-                  <h4 className="text-xs font-mono uppercase font-bold text-slate-300 tracking-wider">
-                    Transparent Trust Score Breakdown
-                  </h4>
-                  <div className="p-4 rounded-lg bg-[#060a14] border border-slate-800 space-y-3 text-xs font-mono">
-                    <div className="flex justify-between items-center py-1.5 border-b border-slate-800">
-                      <span className="text-slate-400">Maximum Baseline Trust:</span>
-                      <span className="text-emerald-400 font-bold">100 / 100</span>
                     </div>
-
-                    {realScanResult.scoreAssessment.deductionBreakdown.length === 0 ? (
-                      <div className="py-3 text-center text-slate-400">
-                        <Check className="w-5 h-5 text-emerald-400 mx-auto mb-1" />
-                        No risk deductions applied. Target exhibits pristine baseline indicators.
-                      </div>
-                    ) : (
-                      <div className="space-y-2 py-1">
-                        {realScanResult.scoreAssessment.deductionBreakdown.map((item) => (
-                          <div key={item.id} className="flex justify-between items-start text-[11px]">
-                            <div className="pr-2">
-                              <div className="text-white font-medium">{item.title}</div>
-                              <div className="text-slate-500 text-[10px]">{item.source}</div>
-                            </div>
-                            <span className="text-rose-400 font-bold shrink-0">
-                              -{item.pointsDeducted}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
+                    {live.scoreAssessment.scoringSummary && (
+                      <p className="mt-3 text-[11px] leading-relaxed text-soc-muted">{live.scoreAssessment.scoringSummary}</p>
                     )}
+                  </Panel>
 
-                    <div className="flex justify-between items-center pt-2 border-t border-slate-800">
-                      <span className="text-slate-300 font-bold">Final Computed Score:</span>
-                      <span
-                        className={`text-base font-bold ${
-                          realScanResult.scoreAssessment.trustScore >= 80
-                            ? 'text-emerald-400'
-                            : realScanResult.scoreAssessment.trustScore >= 50
-                            ? 'text-amber-400'
-                            : 'text-rose-400'
-                        }`}
-                      >
-                        {realScanResult.scoreAssessment.trustScore} / 100
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Cryptographic SHA-256 Proof */}
-                  <div className="p-4 rounded-lg bg-[#060a14] border border-slate-800 space-y-2 text-xs">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-mono uppercase text-slate-400">
-                        Forensic Consensus Proof (SHA-256)
-                      </span>
-                      <button
-                        onClick={() => copyHashToClipboard(realScanResult.hashProof)}
-                        className="text-[10px] font-mono text-cyan-400 hover:text-cyan-300 flex items-center gap-1"
-                      >
-                        <Copy className="w-3 h-3" />
+                  <Panel
+                    title="Forensic consensus proof"
+                    subtitle="SHA-256"
+                    actions={
+                      <button onClick={() => copyHashToClipboard(live.hashProof)} className="soc-btn soc-btn-ghost h-7 text-[11px]">
+                        <Copy className="h-3.5 w-3.5" />
                         {copiedHash ? 'Copied' : 'Copy'}
                       </button>
-                    </div>
-                    <p className="font-mono text-[11px] text-cyan-300 break-all select-all">
-                      {realScanResult.hashProof}
-                    </p>
-                  </div>
+                    }
+                  >
+                    <p className="select-all break-all font-mono text-[11px] text-soc-text-2">{live.hashProof}</p>
+                  </Panel>
                 </div>
               </div>
             </div>
@@ -688,715 +751,415 @@ export const WebsiteInvestigationPage: React.FC<WebsiteInvestigationPageProps> =
 
           {/* Tab 2: DNS */}
           {activeTab === 'dns' && (
-            <div className="p-6 rounded-xl bg-[#090e1c] border border-slate-800 space-y-5">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
-                <div>
-                  <h4 className="text-sm font-bold text-white">Live Authoritative DNS Resolution</h4>
-                  <p className="text-xs text-slate-400">
-                    Real-time DNS query results for hostname {realScanResult.parsedUrl.hostname}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span
-                    className={`px-2.5 py-0.5 rounded text-[11px] font-mono font-bold ${
-                      realScanResult.dns.resolves
-                        ? 'bg-emerald-950/60 text-emerald-300 border border-emerald-500/40'
-                        : 'bg-rose-950/60 text-rose-300 border border-rose-500/40'
-                    }`}
-                  >
-                    {realScanResult.dns.resolves ? 'DNS ACTIVE (RESOLVES)' : 'NXDOMAIN / UNRESOLVED'}
+            <Panel
+              title="Live authoritative DNS resolution"
+              subtitle={`Query results for ${live.parsedUrl.hostname}`}
+              actions={
+                <>
+                  <span className={`rounded-[3px] border px-1.5 py-[1px] font-mono text-[10px] font-semibold ${liveDns.resolves ? 'border-sev-clean/35 bg-sev-clean/10 text-sev-clean' : 'border-sev-critical/35 bg-sev-critical/10 text-sev-critical'}`}>
+                    {liveDns.resolves ? 'RESOLVES' : 'NXDOMAIN / UNRESOLVED'}
                   </span>
-                  <span
-                    className={`px-2.5 py-0.5 rounded text-[11px] font-mono ${
-                      realScanResult.dns.spfConfigured
-                        ? 'bg-emerald-950/40 text-emerald-300 border border-emerald-500/30'
-                        : 'bg-amber-950/40 text-amber-300 border border-amber-500/30'
-                    }`}
-                  >
-                    SPF: {realScanResult.dns.spfConfigured ? 'Configured' : 'Missing'}
+                  <span className={`rounded-[3px] border px-1.5 py-[1px] font-mono text-[10px] font-semibold ${liveDns.spfConfigured ? 'border-sev-clean/35 bg-sev-clean/10 text-sev-clean' : 'border-sev-medium/35 bg-sev-medium/10 text-sev-medium'}`}>
+                    SPF {liveDns.spfConfigured ? 'CONFIGURED' : 'MISSING'}
                   </span>
-                </div>
-              </div>
-
-              {!realScanResult.dns.resolves && (
-                <div className="p-4 rounded-lg bg-rose-950/30 border border-rose-500/40 text-xs text-rose-200">
-                  <span className="font-bold">NXDOMAIN Notice:</span> This domain failed to resolve to an active IPv4 address. Hostnames without DNS mapping often indicate discarded phishing domains, sinkholed malware hosts, or typosquatting campaigns.
-                </div>
+                </>
+              }
+            >
+              {!liveDns.resolves && (
+                <Notice tone="danger" title="NXDOMAIN notice" className="mb-3">
+                  This domain failed to resolve to an active IPv4 address. Hostnames without DNS mapping often indicate
+                  discarded phishing domains, sinkholed malware hosts or typosquatting campaigns.
+                  {liveDns.error && <div className="mt-1 font-mono text-[11px] text-soc-muted">{liveDns.error}</div>}
+                </Notice>
               )}
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono">
-                {/* A Records */}
-                <div className="p-4 rounded-lg bg-[#060a14] border border-slate-800 space-y-2">
-                  <span className="text-[10px] uppercase font-bold text-cyan-400">
-                    A Records (IPv4 Host Mapping)
-                  </span>
-                  {realScanResult.dns.aRecords.length > 0 ? (
-                    <div className="space-y-1">
-                      {realScanResult.dns.aRecords.map((ip) => (
-                        <div key={ip} className="p-1.5 rounded bg-slate-900 text-white font-bold">
-                          {ip}
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-slate-500 text-[11px]">No A records returned.</p>
-                  )}
-                </div>
-
-                {/* Nameservers */}
-                <div className="p-4 rounded-lg bg-[#060a14] border border-slate-800 space-y-2">
-                  <span className="text-[10px] uppercase font-bold text-cyan-400">
-                    NS Records (Authoritative Nameservers)
-                  </span>
-                  {realScanResult.dns.nsRecords.length > 0 ? (
-                    <div className="space-y-1">
-                      {realScanResult.dns.nsRecords.map((ns) => (
-                        <div key={ns} className="p-1.5 rounded bg-slate-900 text-slate-200 truncate">
-                          {ns}
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-slate-500 text-[11px]">No NS records returned.</p>
-                  )}
-                </div>
-
-                {/* MX Records */}
-                <div className="p-4 rounded-lg bg-[#060a14] border border-slate-800 space-y-2">
-                  <span className="text-[10px] uppercase font-bold text-cyan-400">
-                    MX Records (Mail Exchange Servers)
-                  </span>
-                  {realScanResult.dns.mxRecords.length > 0 ? (
-                    <div className="space-y-1">
-                      {realScanResult.dns.mxRecords.map((mx, idx) => (
-                        <div key={idx} className="p-1.5 rounded bg-slate-900 text-slate-200 flex justify-between">
-                          <span className="truncate">{mx.exchange}</span>
-                          <span className="text-cyan-400 shrink-0 ml-2">Pri: {mx.priority}</span>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-slate-500 text-[11px]">No MX mail records configured.</p>
-                  )}
-                </div>
-
-                {/* TXT Records */}
-                <div className="p-4 rounded-lg bg-[#060a14] border border-slate-800 space-y-2">
-                  <span className="text-[10px] uppercase font-bold text-cyan-400">
-                    TXT Records &amp; SPF Policies
-                  </span>
-                  {realScanResult.dns.txtRecords.length > 0 ? (
-                    <div className="space-y-1 max-h-48 overflow-y-auto">
-                      {realScanResult.dns.txtRecords.map((txt, idx) => (
-                        <div key={idx} className="p-1.5 rounded bg-slate-900 text-slate-300 text-[10px] break-all">
-                          {txt}
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-slate-500 text-[11px]">No TXT records configured.</p>
-                  )}
-                </div>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <RecordList
+                  title="A records · IPv4 host mapping"
+                  empty="No A records returned."
+                  items={liveDns.aRecords.map((ip) => (
+                    <li key={ip} className="rounded bg-soc-raised px-2 py-1 font-semibold text-soc-text">{ip}</li>
+                  ))}
+                />
+                <RecordList
+                  title="NS records · authoritative nameservers"
+                  empty="No NS records returned."
+                  items={liveDns.nsRecords.map((ns) => (
+                    <li key={ns} className="truncate rounded bg-soc-raised px-2 py-1 text-soc-text-2">{ns}</li>
+                  ))}
+                />
+                <RecordList
+                  title="MX records · mail exchange"
+                  empty="No MX mail records configured."
+                  items={liveDns.mxRecords.map((mx, idx) => (
+                    <li key={idx} className="flex justify-between gap-2 rounded bg-soc-raised px-2 py-1 text-soc-text-2">
+                      <span className="truncate">{mx.exchange}</span>
+                      <span className="shrink-0 text-soc-muted">pri {mx.priority}</span>
+                    </li>
+                  ))}
+                />
+                <RecordList
+                  title="TXT records & SPF policies"
+                  empty="No TXT records configured."
+                  items={liveDns.txtRecords.map((txt, idx) => (
+                    <li key={idx} className="break-all rounded bg-soc-raised px-2 py-1 text-[10.5px] text-soc-text-2">{txt}</li>
+                  ))}
+                />
+                {liveDns.aaaaRecords.length > 0 && (
+                  <RecordList
+                    title="AAAA records · IPv6 host mapping"
+                    empty="No AAAA records returned."
+                    items={liveDns.aaaaRecords.map((ip) => (
+                      <li key={ip} className="break-all rounded bg-soc-raised px-2 py-1 text-soc-text-2">{ip}</li>
+                    ))}
+                  />
+                )}
               </div>
-            </div>
+            </Panel>
           )}
 
           {/* Tab 3: TLS */}
           {activeTab === 'tls' && (
-            <div className="p-6 rounded-xl bg-[#090e1c] border border-slate-800 space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="text-sm font-bold text-white">TLS / SSL Certificate Intelligence</h4>
-                  <p className="text-xs text-slate-400">
-                    Transport Layer Security status for {realScanResult.parsedUrl.hostname}
-                  </p>
-                </div>
-                <button
-                  onClick={() => onNavigate('tls-certificate')}
-                  className="text-xs font-semibold text-cyan-400 hover:text-cyan-300"
-                >
-                  Full TLS Engine →
+            <Panel
+              title="TLS / SSL transport status"
+              subtitle={`Transport layer security for ${live.parsedUrl.hostname}`}
+              actions={
+                <button onClick={() => onNavigate('tls-certificate')} className="soc-btn soc-btn-ghost h-7 text-[11px]">
+                  Full TLS engine
+                  <ChevronRight className="h-3.5 w-3.5" />
                 </button>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono">
-                <div className="p-4 rounded-lg bg-[#060a14] border border-slate-800 space-y-2">
-                  <span className="text-[10px] text-slate-400 uppercase">Protocol Scheme</span>
+              }
+            >
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div className="soc-well p-3">
+                  <div className="soc-label mb-1.5">Protocol scheme</div>
                   <div className="flex items-center gap-2">
-                    <span className="text-base font-bold text-white uppercase">{realScanResult.parsedUrl.protocol}</span>
-                    <span
-                      className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                        realScanResult.parsedUrl.protocol === 'https:'
-                          ? 'bg-emerald-950/60 text-emerald-300 border border-emerald-500/30'
-                          : 'bg-rose-950/60 text-rose-300 border border-rose-500/30'
-                      }`}
-                    >
-                      {realScanResult.parsedUrl.protocol === 'https:' ? 'Encrypted Channel' : 'Cleartext Unencrypted'}
+                    <span className="font-mono text-base font-semibold uppercase text-soc-text">{live.parsedUrl.protocol}</span>
+                    <span className={`rounded-[3px] border px-1.5 py-[1px] font-mono text-[10px] font-semibold ${live.parsedUrl.protocol === 'https:' ? 'border-sev-clean/35 bg-sev-clean/10 text-sev-clean' : 'border-sev-critical/35 bg-sev-critical/10 text-sev-critical'}`}>
+                      {live.parsedUrl.protocol === 'https:' ? 'ENCRYPTED CHANNEL' : 'CLEARTEXT'}
                     </span>
                   </div>
-                  <p className="text-slate-400 text-[11px] pt-1">
-                    Port: {realScanResult.parsedUrl.port || (realScanResult.parsedUrl.protocol === 'https:' ? '443' : '80')}
+                  <p className="mt-2 font-mono text-[11px] text-soc-muted">
+                    Port {live.parsedUrl.port || (live.parsedUrl.protocol === 'https:' ? '443' : '80')}
                   </p>
                 </div>
-
-                <div className="p-4 rounded-lg bg-[#060a14] border border-slate-800 space-y-2">
-                  <span className="text-[10px] text-slate-400 uppercase">Host Identity</span>
-                  <div className="text-white font-semibold break-all">{realScanResult.parsedUrl.hostname}</div>
-                  <div className="pt-2 border-t border-slate-800 text-slate-400">
-                    Is Raw IP: <span className="text-cyan-300">{realScanResult.parsedUrl.isIpAddress ? 'Yes (High Risk)' : 'No (Standard FQDN)'}</span>
+                <div className="soc-well p-3 text-xs">
+                  <div className="soc-label mb-1.5">Host identity</div>
+                  <div className="break-all font-mono font-semibold text-soc-text">{live.parsedUrl.hostname}</div>
+                  <div className="mt-2 border-t border-soc-line pt-2 font-mono text-[11px] text-soc-muted">
+                    Raw IP: <span className="text-soc-text-2">{live.parsedUrl.isIpAddress ? 'Yes (high risk)' : 'No (standard FQDN)'}</span>
                   </div>
                 </div>
               </div>
-            </div>
+              <Notice className="mt-3">
+                Certificate chain details are not part of the live scan response. Open the TLS engine for certificate-level analysis.
+              </Notice>
+            </Panel>
           )}
 
           {/* Tab 4: Security Headers */}
           {activeTab === 'headers' && (
-            <div className="p-6 rounded-xl bg-[#090e1c] border border-slate-800 space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="text-sm font-bold text-white">HTTP Security Headers Evaluation</h4>
-                  <p className="text-xs text-slate-400">
-                    Defense-in-depth posture against clickjacking, MIME-sniffing, and SSL stripping
-                  </p>
-                </div>
-                <button
-                  onClick={() => onNavigate('security-assessment')}
-                  className="text-xs font-semibold text-cyan-400 hover:text-cyan-300"
-                >
-                  Full Assessment Report →
-                </button>
+            <Panel
+              title="HTTP security headers"
+              subtitle="Defense-in-depth posture against clickjacking, MIME-sniffing and SSL stripping"
+              flush
+              actions={
+                <>
+                  <DataTag kind="sample" label="Sample reference" />
+                  <button onClick={() => onNavigate('security-assessment')} className="soc-btn soc-btn-ghost h-7 text-[11px]">
+                    Full assessment
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </button>
+                </>
+              }
+            >
+              <div className="border-b border-soc-line px-4 py-2.5">
+                <Notice tone="warn">
+                  The live scan response does not include HTTP header data. The rows below are sample reference values, not
+                  headers collected from {live.parsedUrl.hostname}.
+                </Notice>
               </div>
-
-              <div className="space-y-3">
-                {SAMPLE_SECURITY_HEADERS.map((h) => (
-                  <div
-                    key={h.name}
-                    className="p-3.5 rounded-lg bg-[#060a14] border border-slate-800 text-xs flex flex-col md:flex-row md:items-center justify-between gap-3"
-                  >
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono font-bold text-white">{h.name}</span>
-                        <span
-                          className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase ${
-                            h.status === 'present'
-                              ? 'bg-emerald-950/50 text-emerald-300 border border-emerald-500/30'
-                              : h.status === 'misconfigured'
-                              ? 'bg-amber-950/50 text-amber-300 border border-amber-500/30'
-                              : 'bg-rose-950/50 text-rose-300 border border-rose-500/30'
-                          }`}
-                        >
-                          {h.status}
-                        </span>
-                      </div>
-                      <p className="text-slate-400 text-[11px]">{h.recommendation}</p>
-                    </div>
-
-                    {h.value && (
-                      <span className="px-2.5 py-1 rounded bg-slate-900 font-mono text-slate-300 text-[11px] shrink-0 border border-slate-800">
-                        {h.value}
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
+              <SecurityHeadersTable />
+            </Panel>
           )}
 
           {/* Tab 5: Geo & Host */}
           {activeTab === 'whois' && (
-            <div className="p-6 rounded-xl bg-[#090e1c] border border-slate-800 space-y-4">
-              <h4 className="text-sm font-bold text-white">Host Infrastructure &amp; Network Routing</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono">
-                <div className="p-4 rounded-lg bg-[#060a14] border border-slate-800 space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Target Hostname:</span>
-                    <span className="text-white font-bold">{realScanResult.parsedUrl.hostname}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Top-Level Domain:</span>
-                    <span className="text-cyan-300">.{realScanResult.parsedUrl.tld || 'none'}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">DNS Resolution Status:</span>
-                    <span className={realScanResult.dns.resolves ? 'text-emerald-400' : 'text-rose-400'}>
-                      {realScanResult.dns.resolves ? 'Resolves' : 'NXDOMAIN'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Primary Resolved IP:</span>
-                    <span className="text-white font-bold">
-                      {realScanResult.dns.aRecords[0] || 'Unresolved'}
-                    </span>
-                  </div>
+            <Panel title="Host infrastructure & network routing">
+              <div className="grid grid-cols-1 gap-x-8 md:grid-cols-2">
+                <div>
+                  <KV k="Target hostname" v={live.parsedUrl.hostname} />
+                  <KV k="Top-level domain" v={`.${live.parsedUrl.tld || 'none'}`} />
+                  <KV
+                    k="DNS resolution status"
+                    v={liveDns.resolves ? 'Resolves' : 'NXDOMAIN'}
+                    vClassName={liveDns.resolves ? 'text-sev-clean' : 'text-sev-critical'}
+                  />
+                  <KV k="Primary resolved IP" v={liveDns.aRecords[0] || 'Unresolved'} />
                 </div>
-
-                <div className="p-4 rounded-lg bg-[#060a14] border border-slate-800 space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Protocol Scheme:</span>
-                    <span className="text-white">{realScanResult.parsedUrl.protocol}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Subdomain Depth:</span>
-                    <span className="text-white">
-                      {realScanResult.parsedUrl.subdomain ? realScanResult.parsedUrl.subdomain.split('.').length : 0} levels
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Forensic Engine:</span>
-                    <span className="text-cyan-300">Sentinel AI Core v2.0</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">SSRF Enforcement:</span>
-                    <span className="text-emerald-400 font-bold">Passed (Protected)</span>
-                  </div>
+                <div>
+                  <KV k="Protocol scheme" v={live.parsedUrl.protocol} />
+                  <KV k="Subdomain depth" v={`${live.parsedUrl.subdomain ? live.parsedUrl.subdomain.split('.').length : 0} levels`} />
+                  <KV k="Forensic engine" v="Sentinel AI Core v2.0" />
+                  <KV k="SSRF enforcement" v="Passed (protected)" vClassName="text-sev-clean" />
                 </div>
               </div>
-            </div>
+            </Panel>
           )}
 
           {/* Tab 6: Forensic JSON */}
           {activeTab === 'raw' && (
-            <div className="p-6 rounded-xl bg-[#090e1c] border border-slate-800 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Terminal className="w-4 h-4 text-cyan-400" />
-                  <h4 className="text-sm font-bold text-white font-mono">
-                    Real Forensic Investigation Telemetry (JSON)
-                  </h4>
-                </div>
-                <button
-                  onClick={() => {
-                    navigator.clipboard?.writeText(JSON.stringify(realScanResult, null, 2));
-                    setCopiedJson(true);
-                    setTimeout(() => setCopiedJson(false), 2000);
-                  }}
-                  className="px-2.5 py-1 text-xs font-mono rounded bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center gap-1.5 transition-colors"
-                >
-                  <Copy className="w-3.5 h-3.5" />
-                  {copiedJson ? 'Copied JSON!' : 'Copy JSON'}
+            <Panel
+              title="Real forensic investigation telemetry"
+              icon={Terminal}
+              subtitle="JSON response as returned by the backend"
+              actions={
+                <button onClick={() => copyJson(live)} className="soc-btn h-7 text-[11px]">
+                  <Copy className="h-3.5 w-3.5" />
+                  {copiedJson ? 'Copied JSON' : 'Copy JSON'}
                 </button>
-              </div>
-              <pre className="p-4 rounded-lg bg-[#050811] border border-slate-800 text-[11px] font-mono text-cyan-300 overflow-x-auto max-h-96">
-                {JSON.stringify(realScanResult, null, 2)}
+              }
+            >
+              <pre className="soc-well max-h-[28rem] overflow-auto p-3 font-mono text-[11px] leading-relaxed text-soc-text-2">
+                {JSON.stringify(live, null, 2)}
               </pre>
-            </div>
+            </Panel>
           )}
         </div>
       )}
 
-      {/* Demo Preset Dossier (Shown when in demo mode or before first real scan) */}
-      {!isAnalyzing && (!realScanResult || activeScanMode === 'demo') && (
-        <div className="space-y-6">
-          {/* Verdict Banner Card (Demo Simulation) */}
-          <div
-            className={`p-6 rounded-xl border ${
-              matchedDemoRecord.verdict === 'Malicious'
-                ? 'bg-[#150a10] border-rose-500/40 shadow-[0_0_25px_rgba(244,63,94,0.1)]'
-                : matchedDemoRecord.verdict === 'Suspicious'
-                ? 'bg-[#15110a] border-amber-500/40 shadow-[0_0_25px_rgba(245,158,11,0.1)]'
-                : 'bg-[#081510] border-emerald-500/40 shadow-[0_0_25px_rgba(16,185,129,0.1)]'
-            }`}
-          >
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-              <div className="space-y-3">
-                <div className="flex flex-wrap items-center gap-2.5">
-                  <span className="font-mono text-xs text-slate-400">{matchedDemoRecord.id}</span>
-                  <span className="text-slate-600">·</span>
-                  <StatusBadge verdict={matchedDemoRecord.verdict} />
-                  <SeverityBadge level={matchedDemoRecord.severity} />
-                  <span className="text-slate-600">·</span>
-                  <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-950/60 text-amber-300 border border-amber-500/40">
-                    DEMO PRESET FINDINGS
-                  </span>
-                  <span className="text-slate-600">·</span>
-                  <span className="text-xs text-slate-400 font-mono">{matchedDemoRecord.timestamp}</span>
-                </div>
+      {/* ============================ DEMO PRESET ============================ */}
+      {showDemo && (
+        <div className="space-y-4">
+          <VerdictBanner
+            caseId={matchedDemoRecord.id}
+            verdict={matchedDemoRecord.verdict}
+            severity={matchedDemoRecord.severity}
+            timestamp={matchedDemoRecord.timestamp}
+            target={matchedDemoRecord.target}
+            trustScore={matchedDemoRecord.trustScore}
+            onNavigate={onNavigate}
+            provenance={
+              <button onClick={onOpenDemoNotice} title="About demo data">
+                <DataTag kind="demo" label="Demo preset findings" />
+              </button>
+            }
+            vectors={matchedDemoRecord.categories.map((c) => (
+              <span key={c} className="soc-chip">
+                {c}
+              </span>
+            ))}
+          />
 
-                <div>
-                  <h3 className="text-xl md:text-2xl font-bold font-mono text-white tracking-tight break-all">
-                    {matchedDemoRecord.target}
-                  </h3>
-                  <div className="flex flex-wrap items-center gap-2 mt-2 text-xs text-slate-300">
-                    <span className="font-semibold text-slate-400">Classified Vectors:</span>
-                    {matchedDemoRecord.categories.map((c) => (
-                      <span
-                        key={c}
-                        className="px-2 py-0.5 rounded bg-slate-900/80 border border-slate-700/60 font-mono text-[11px]"
-                      >
-                        {c}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </div>
+          <DossierTabs active={activeTab} onChange={setActiveTab} whoisLabel="Geo & WHOIS" />
 
-              {/* Gauge and Quick Action Buttons */}
-              <div className="w-full lg:w-72 space-y-3 p-4 rounded-lg bg-black/40 border border-slate-800">
-                <SeverityBar score={matchedDemoRecord.trustScore} />
-
-                <div className="pt-2 flex items-center justify-between gap-2 text-xs">
-                  <button
-                    onClick={() => onNavigate('blockchain-verification')}
-                    className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded bg-cyan-950/60 hover:bg-cyan-900/60 border border-cyan-500/30 text-cyan-300 font-medium transition-colors"
-                  >
-                    <Blocks className="w-3.5 h-3.5" />
-                    <span>Ledger Proof</span>
-                  </button>
-
-                  <button
-                    onClick={() => onNavigate('reports')}
-                    className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium transition-colors"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>Report</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Dossier Tabs */}
-          <div className="flex items-center gap-1 p-1 bg-[#090e1c] rounded-xl border border-slate-800 overflow-x-auto">
-            {[
-              { id: 'overview', label: 'Threat Overview', icon: Shield },
-              { id: 'dns', label: 'DNS Infrastructure', icon: Server },
-              { id: 'tls', label: 'TLS / SSL Certificate', icon: Lock },
-              { id: 'headers', label: 'Security Headers', icon: Layers },
-              { id: 'whois', label: 'Geo & WHOIS', icon: Globe },
-              { id: 'raw', label: 'Forensic JSON', icon: FileCode },
-            ].map((tab) => {
-              const Icon = tab.icon;
-              const isActive = activeTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id as any)}
-                  className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
-                    isActive
-                      ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40 border border-transparent'
-                  }`}
-                >
-                  <Icon className="w-3.5 h-3.5" />
-                  <span>{tab.label}</span>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Tab Content: Demo Overview */}
           {activeTab === 'overview' && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="p-6 rounded-xl bg-[#090e1c] border border-slate-800 space-y-4">
-                <h4 className="text-xs font-mono uppercase font-bold text-slate-300 tracking-wider">
-                  Threat Engine Findings (Simulated)
-                </h4>
-                <div className="space-y-3 text-xs">
-                  <div className="p-3 rounded-lg bg-[#060a14] border border-slate-800 flex items-start justify-between">
-                    <div>
-                      <span className="font-semibold text-white">Homoglyph / Punycode Check</span>
-                      <p className="text-slate-400 text-[11px] mt-0.5">
-                        {matchedDemoRecord.target.includes('pаypаl')
-                          ? 'ALERT: Cyrillic character "а" detected replacing Latin letter.'
-                          : 'No visual character deception detected in hostname.'}
-                      </p>
-                    </div>
-                    {matchedDemoRecord.target.includes('pаypаl') ? (
-                      <XCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-                    ) : (
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                    )}
-                  </div>
-
-                  <div className="p-3 rounded-lg bg-[#060a14] border border-slate-800 flex items-start justify-between">
-                    <div>
-                      <span className="font-semibold text-white">Fast-Flux / Bulletproof Hosting</span>
-                      <p className="text-slate-400 text-[11px] mt-0.5">
-                        IP {matchedDemoRecord.ipAddress} resides in an ASN frequently associated with bulletproof hosting.
-                      </p>
-                    </div>
-                    <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                  </div>
-
-                  <div className="p-3 rounded-lg bg-[#060a14] border border-slate-800 flex items-start justify-between">
-                    <div>
-                      <span className="font-semibold text-white">Credential Harvester Signatures</span>
-                      <p className="text-slate-400 text-[11px] mt-0.5">
-                        DOM lexical tokenizer flagged banking password submission fields with external action endpoints.
-                      </p>
-                    </div>
-                    <XCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-                  </div>
-                </div>
-
-                <div className="pt-2">
-                  <button
-                    onClick={() => onNavigate('phishing-detection')}
-                    className="w-full py-2 px-3 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 transition-colors text-center"
-                  >
-                    Open in Phishing Deep-Inspection Lab →
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <Panel title="Threat engine findings" actions={<DataTag kind="simulated" />} flush>
+                <ul className="divide-y divide-soc-line text-xs">
+                  {[
+                    {
+                      title: 'Homoglyph / punycode check',
+                      desc: matchedDemoRecord.target.includes('pаypаl')
+                        ? 'ALERT: Cyrillic character "а" detected replacing Latin letter.'
+                        : 'No visual character deception detected in hostname.',
+                      state: matchedDemoRecord.target.includes('pаypаl') ? 'bad' : 'ok',
+                    },
+                    {
+                      title: 'Fast-flux / bulletproof hosting',
+                      desc: `IP ${matchedDemoRecord.ipAddress} resides in an ASN frequently associated with bulletproof hosting.`,
+                      state: 'warn',
+                    },
+                    {
+                      title: 'Credential harvester signatures',
+                      desc: 'DOM lexical tokenizer flagged banking password submission fields with external action endpoints.',
+                      state: 'bad',
+                    },
+                  ].map((row) => (
+                    <li key={row.title} className="flex items-start justify-between gap-3 px-4 py-3">
+                      <div>
+                        <div className="font-medium text-soc-text">{row.title}</div>
+                        <p className="mt-0.5 text-[11px] text-soc-text-2">{row.desc}</p>
+                      </div>
+                      {row.state === 'bad' ? (
+                        <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-sev-critical" />
+                      ) : row.state === 'warn' ? (
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-sev-medium" />
+                      ) : (
+                        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-sev-clean" />
+                      )}
+                    </li>
+                  ))}
+                </ul>
+                <div className="border-t border-soc-line px-4 py-2.5">
+                  <button onClick={() => onNavigate('phishing-detection')} className="soc-btn h-7 w-full text-[11px]">
+                    Open in phishing deep-inspection lab
+                    <ChevronRight className="h-3.5 w-3.5" />
                   </button>
                 </div>
-              </div>
+              </Panel>
 
-              {/* Host Infrastructure Card */}
-              <div className="p-6 rounded-xl bg-[#090e1c] border border-slate-800 space-y-4">
-                <h4 className="text-xs font-mono uppercase font-bold text-slate-300 tracking-wider">
-                  Host &amp; Network Telemetry
-                </h4>
-                <div className="space-y-2.5 text-xs font-mono">
-                  <div className="flex justify-between py-2 border-b border-slate-800">
-                    <span className="text-slate-400">Resolved IPv4:</span>
-                    <span className="text-white font-bold">{matchedDemoRecord.ipAddress}</span>
-                  </div>
-                  <div className="flex justify-between py-2 border-b border-slate-800">
-                    <span className="text-slate-400">Origin Geolocation:</span>
-                    <span className="text-white">
-                      {matchedDemoRecord.country} ({matchedDemoRecord.countryCode})
-                    </span>
-                  </div>
-                  <div className="flex justify-between py-2 border-b border-slate-800">
-                    <span className="text-slate-400">Autonomous System:</span>
-                    <span className="text-cyan-300 text-right truncate max-w-[220px]">
-                      {matchedDemoRecord.asn}
-                    </span>
-                  </div>
-                  <div className="flex justify-between py-2 border-b border-slate-800">
-                    <span className="text-slate-400">TLS Status:</span>
-                    <span className="text-amber-400">{matchedDemoRecord.tlsStatus}</span>
-                  </div>
-                  <div className="flex justify-between py-2">
-                    <span className="text-slate-400">Investigation Lead:</span>
-                    <span className="text-slate-300">{matchedDemoRecord.investigator}</span>
-                  </div>
-                </div>
-
-                {/* Cryptographic Hash Proof */}
-                <div className="p-3 rounded-lg bg-[#060a14] border border-slate-800 text-xs">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-[10px] font-mono uppercase text-slate-400">
-                      SHA-256 Consensus Integrity Hash
-                    </span>
+              <Panel title="Host & network telemetry" actions={<DataTag kind="simulated" />}>
+                <KV k="Resolved IPv4" v={matchedDemoRecord.ipAddress} />
+                <KV k="Origin geolocation" v={`${matchedDemoRecord.country} (${matchedDemoRecord.countryCode})`} />
+                <KV k="Autonomous system" v={<span className="block max-w-[240px] truncate">{matchedDemoRecord.asn}</span>} />
+                <KV k="TLS status" v={<StatusBadge verdict={matchedDemoRecord.tlsStatus} size="sm" />} />
+                <KV k="Investigation lead" v={matchedDemoRecord.investigator} />
+                <div className="soc-well mt-3 p-3">
+                  <div className="mb-1 flex items-center justify-between">
+                    <span className="soc-label">SHA-256 consensus integrity hash</span>
                     <button
                       onClick={() => copyHashToClipboard(matchedDemoRecord.hashProof)}
-                      className="text-[10px] font-mono text-cyan-400 hover:text-cyan-300 flex items-center gap-1"
+                      className="flex items-center gap-1 font-mono text-[10px] text-soc-accent hover:text-soc-accent-hi"
                     >
-                      <Copy className="w-3 h-3" />
+                      <Copy className="h-3 w-3" />
                       {copiedHash ? 'Copied' : 'Copy'}
                     </button>
                   </div>
-                  <p className="font-mono text-[11px] text-slate-300 break-all select-all">
-                    {matchedDemoRecord.hashProof}
-                  </p>
+                  <p className="select-all break-all font-mono text-[11px] text-soc-text-2">{matchedDemoRecord.hashProof}</p>
                 </div>
-              </div>
+              </Panel>
             </div>
           )}
 
-          {/* Demo DNS Tab */}
           {activeTab === 'dns' && (
-            <div className="p-6 rounded-xl bg-[#090e1c] border border-slate-800 space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="text-sm font-bold text-white">DNS Zone Resolution Records (Simulated)</h4>
-                  <p className="text-xs text-slate-400">
-                    Nameservers, MX routing, and SPF validation records for {matchedDemoRecord.target}
-                  </p>
-                </div>
-                <span className="text-xs font-mono text-slate-400">TTL Standard: 300s</span>
-              </div>
-
+            <Panel
+              title="DNS zone resolution records"
+              subtitle={`Nameservers, MX routing and SPF records for ${matchedDemoRecord.target}`}
+              flush
+              actions={
+                <>
+                  <DataTag kind="simulated" />
+                  <span className="soc-label">TTL std 300s</span>
+                </>
+              }
+            >
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs font-mono">
+                <table className="soc-table font-mono">
                   <thead>
-                    <tr className="border-b border-slate-800 text-slate-400 uppercase text-[11px]">
-                      <th className="py-2.5 px-3">Type</th>
-                      <th className="py-2.5 px-3">Hostname</th>
-                      <th className="py-2.5 px-3">Destination / Target Value</th>
-                      <th className="py-2.5 px-3 text-right">TTL</th>
+                    <tr>
+                      <th>Type</th>
+                      <th>Hostname</th>
+                      <th>Destination / value</th>
+                      <th className="text-right">TTL</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-800/60">
+                  <tbody>
                     {SAMPLE_DNS_RECORDS.map((rec, i) => (
-                      <tr key={i} className="hover:bg-slate-800/30">
-                        <td className="py-2.5 px-3">
-                          <span className="px-2 py-0.5 rounded bg-cyan-950/60 border border-cyan-500/30 text-cyan-300 font-bold">
-                            {rec.type}
-                          </span>
+                      <tr key={i}>
+                        <td>
+                          <span className="soc-chip w-12 justify-center font-semibold text-soc-text">{rec.type}</span>
                         </td>
-                        <td className="py-2.5 px-3 text-slate-300">{rec.name}</td>
-                        <td className="py-2.5 px-3 text-white break-all">{rec.value}</td>
-                        <td className="py-2.5 px-3 text-right text-slate-400">{rec.ttl}s</td>
+                        <td>{rec.name}</td>
+                        <td className="break-all text-soc-text">{rec.value}</td>
+                        <td className="text-right text-soc-muted">{rec.ttl}s</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-            </div>
+            </Panel>
           )}
 
-          {/* Demo TLS Tab */}
           {activeTab === 'tls' && (
-            <div className="p-6 rounded-xl bg-[#090e1c] border border-slate-800 space-y-4">
-              <div className="flex items-center justify-between">
+            <Panel
+              title="TLS / SSL certificate forensics"
+              subtitle="Chain verification, cryptographic algorithms and Certificate Transparency logs"
+              actions={
+                <>
+                  <DataTag kind="simulated" />
+                  <button onClick={() => onNavigate('tls-certificate')} className="soc-btn soc-btn-ghost h-7 text-[11px]">
+                    Full TLS engine
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </button>
+                </>
+              }
+            >
+              <div className="grid grid-cols-1 gap-x-8 md:grid-cols-2">
                 <div>
-                  <h4 className="text-sm font-bold text-white">TLS / SSL Certificate Forensics (Simulated)</h4>
-                  <p className="text-xs text-slate-400">
-                    Chain verification, cryptographic algorithms, and Certificate Transparency logs
-                  </p>
-                </div>
-                <button
-                  onClick={() => onNavigate('tls-certificate')}
-                  className="text-xs font-semibold text-cyan-400 hover:text-cyan-300"
-                >
-                  Full TLS Engine →
-                </button>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono">
-                <div className="p-4 rounded-lg bg-[#060a14] border border-slate-800 space-y-2">
-                  <span className="text-[10px] text-slate-400 uppercase">Certificate Subject (Leaf)</span>
-                  <p className="text-white font-semibold break-all">{SAMPLE_TLS_CERTIFICATE.subject}</p>
-                  <div className="pt-2 border-t border-slate-800 text-slate-400">
-                    Issuer: <span className="text-cyan-300">{SAMPLE_TLS_CERTIFICATE.issuer}</span>
+                  <div className="soc-label mb-1">Certificate subject (leaf)</div>
+                  <p className="break-all font-mono text-xs font-semibold text-soc-text">{SAMPLE_TLS_CERTIFICATE.subject}</p>
+                  <div className="mt-2">
+                    <KV k="Issuer" v={<span className="break-all">{SAMPLE_TLS_CERTIFICATE.issuer}</span>} />
                   </div>
                 </div>
-
-                <div className="p-4 rounded-lg bg-[#060a14] border border-slate-800 space-y-2">
-                  <span className="text-[10px] text-slate-400 uppercase">Validity Period</span>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Valid From:</span>
-                    <span className="text-white">{SAMPLE_TLS_CERTIFICATE.validFrom.split(' ')[0]}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Expires:</span>
-                    <span className="text-amber-400">
-                      {SAMPLE_TLS_CERTIFICATE.validTo.split(' ')[0]} ({SAMPLE_TLS_CERTIFICATE.daysRemaining} days left)
-                    </span>
-                  </div>
+                <div>
+                  <div className="soc-label mb-1">Validity period</div>
+                  <KV k="Valid from" v={SAMPLE_TLS_CERTIFICATE.validFrom.split(' ')[0]} />
+                  <KV
+                    k="Expires"
+                    v={`${SAMPLE_TLS_CERTIFICATE.validTo.split(' ')[0]} (${SAMPLE_TLS_CERTIFICATE.daysRemaining} days left)`}
+                    vClassName="text-sev-medium"
+                  />
                 </div>
               </div>
-            </div>
+            </Panel>
           )}
 
-          {/* Demo Headers Tab */}
           {activeTab === 'headers' && (
-            <div className="p-6 rounded-xl bg-[#090e1c] border border-slate-800 space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h4 className="text-sm font-bold text-white">HTTP Security Headers Evaluation</h4>
-                  <p className="text-xs text-slate-400">
-                    Defense-in-depth posture against clickjacking, MIME-sniffing, and SSL stripping
-                  </p>
-                </div>
-                <button
-                  onClick={() => onNavigate('security-assessment')}
-                  className="text-xs font-semibold text-cyan-400 hover:text-cyan-300"
-                >
-                  Full Assessment Report →
-                </button>
-              </div>
-
-              <div className="space-y-3">
-                {SAMPLE_SECURITY_HEADERS.map((h) => (
-                  <div
-                    key={h.name}
-                    className="p-3.5 rounded-lg bg-[#060a14] border border-slate-800 text-xs flex flex-col md:flex-row md:items-center justify-between gap-3"
-                  >
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono font-bold text-white">{h.name}</span>
-                        <span
-                          className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase ${
-                            h.status === 'present'
-                              ? 'bg-emerald-950/50 text-emerald-300 border border-emerald-500/30'
-                              : h.status === 'misconfigured'
-                              ? 'bg-amber-950/50 text-amber-300 border border-amber-500/30'
-                              : 'bg-rose-950/50 text-rose-300 border border-rose-500/30'
-                          }`}
-                        >
-                          {h.status}
-                        </span>
-                      </div>
-                      <p className="text-slate-400 text-[11px]">{h.recommendation}</p>
-                    </div>
-
-                    {h.value && (
-                      <span className="px-2.5 py-1 rounded bg-slate-900 font-mono text-slate-300 text-[11px] shrink-0 border border-slate-800">
-                        {h.value}
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
+            <Panel
+              title="HTTP security headers"
+              subtitle="Defense-in-depth posture against clickjacking, MIME-sniffing and SSL stripping"
+              flush
+              actions={
+                <>
+                  <DataTag kind="simulated" />
+                  <button onClick={() => onNavigate('security-assessment')} className="soc-btn soc-btn-ghost h-7 text-[11px]">
+                    Full assessment
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </button>
+                </>
+              }
+            >
+              <SecurityHeadersTable />
+            </Panel>
           )}
 
-          {/* Demo WHOIS Tab */}
           {activeTab === 'whois' && (
-            <div className="p-6 rounded-xl bg-[#090e1c] border border-slate-800 space-y-4">
-              <h4 className="text-sm font-bold text-white">WHOIS Registrar &amp; Registration Timeline</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono">
-                <div className="p-4 rounded-lg bg-[#060a14] border border-slate-800 space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Registrar Name:</span>
-                    <span className="text-white">NameCheap, Inc. (Privacy Shield)</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Domain Age:</span>
-                    <span className="text-rose-400 font-bold">4 Days Old (Newly Minted)</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Creation Date:</span>
-                    <span className="text-white">2026-11-03 04:12:00 UTC</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Expiration Date:</span>
-                    <span className="text-white">2027-11-03 04:12:00 UTC</span>
-                  </div>
+            <Panel title="WHOIS registrar & registration timeline" actions={<DataTag kind="simulated" />}>
+              <div className="grid grid-cols-1 gap-x-8 md:grid-cols-2">
+                <div>
+                  <KV k="Registrar name" v="NameCheap, Inc. (Privacy Shield)" />
+                  <KV k="Domain age" v="4 days old (newly minted)" vClassName="text-sev-critical" />
+                  <KV k="Creation date" v="2026-11-03 04:12:00 UTC" />
+                  <KV k="Expiration date" v="2027-11-03 04:12:00 UTC" />
                 </div>
-
-                <div className="p-4 rounded-lg bg-[#060a14] border border-slate-800 space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Registrant Country:</span>
-                    <span className="text-white">Seychelles (Redacted)</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Abuse Contact:</span>
-                    <span className="text-cyan-300">abuse@namecheap.com</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">DNSSEC:</span>
-                    <span className="text-rose-400">Unsigned</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400">Status:</span>
-                    <span className="text-amber-400">clientTransferProhibited</span>
-                  </div>
+                <div>
+                  <KV k="Registrant country" v="Seychelles (redacted)" />
+                  <KV k="Abuse contact" v="abuse@namecheap.com" />
+                  <KV k="DNSSEC" v="Unsigned" vClassName="text-sev-critical" />
+                  <KV k="Status" v="clientTransferProhibited" vClassName="text-sev-medium" />
                 </div>
               </div>
-            </div>
+            </Panel>
           )}
 
-          {/* Demo Raw JSON Tab */}
           {activeTab === 'raw' && (
-            <div className="p-6 rounded-xl bg-[#090e1c] border border-slate-800 space-y-3">
-              <div className="flex items-center justify-between">
-                <h4 className="text-sm font-bold text-white font-mono">Raw Simulated Telemetry (JSON)</h4>
-                <button
-                  onClick={() => {
-                    navigator.clipboard?.writeText(JSON.stringify(matchedDemoRecord, null, 2));
-                    setCopiedJson(true);
-                    setTimeout(() => setCopiedJson(false), 2000);
-                  }}
-                  className="px-2.5 py-1 text-xs font-mono rounded bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center gap-1.5 transition-colors"
-                >
-                  <Copy className="w-3.5 h-3.5" />
-                  {copiedJson ? 'Copied JSON!' : 'Copy JSON'}
-                </button>
-              </div>
-              <pre className="p-4 rounded-lg bg-[#050811] border border-slate-800 text-[11px] font-mono text-cyan-300 overflow-x-auto max-h-96">
+            <Panel
+              title="Raw simulated telemetry"
+              icon={Terminal}
+              subtitle="JSON"
+              actions={
+                <>
+                  <DataTag kind="simulated" />
+                  <button
+                    onClick={() =>
+                      copyJson({
+                        investigation: matchedDemoRecord,
+                        dns: SAMPLE_DNS_RECORDS,
+                        tls: SAMPLE_TLS_CERTIFICATE,
+                        securityHeaders: SAMPLE_SECURITY_HEADERS,
+                        phishingVectors: SAMPLE_PHISHING_VECTORS,
+                      })
+                    }
+                    className="soc-btn h-7 text-[11px]"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                    {copiedJson ? 'Copied JSON' : 'Copy JSON'}
+                  </button>
+                </>
+              }
+            >
+              <pre className="soc-well max-h-[28rem] overflow-auto p-3 font-mono text-[11px] leading-relaxed text-soc-text-2">
                 {JSON.stringify(
                   {
                     investigation: matchedDemoRecord,
@@ -1409,7 +1172,7 @@ export const WebsiteInvestigationPage: React.FC<WebsiteInvestigationPageProps> =
                   2
                 )}
               </pre>
-            </div>
+            </Panel>
           )}
         </div>
       )}

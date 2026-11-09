@@ -1,18 +1,38 @@
-import React, { useState } from 'react';
-import {
-  Fish,
-  AlertTriangle,
-  CheckCircle,
-  XCircle,
-  HelpCircle,
-  Zap,
-  Globe,
-  ArrowRight,
-  ShieldAlert,
-  Search,
-  Sparkles,
-} from 'lucide-react';
-import { SAMPLE_PHISHING_VECTORS } from '../data/mockData';
+import React, { useMemo, useState } from 'react';
+import { Fish, AlertTriangle, ArrowRight, ShieldCheck, ListChecks } from 'lucide-react';
+import { PageHeader, Panel, DataTag, Notice } from '../components/ui/Soc';
+import { SeverityBar } from '../components/common/SeverityBar';
+
+/** Convert a hostname to its ASCII (punycode) form using the browser URL parser. */
+const toAsciiHost = (domain: string): string | null => {
+  try {
+    return new URL(`http://${domain.trim()}`).hostname || null;
+  } catch {
+    return null;
+  }
+};
+
+/** Shannon entropy (bits per character) of the registrable label(s), excluding the TLD. */
+const shannonEntropy = (domain: string): number => {
+  const parts = domain.trim().toLowerCase().split('.');
+  const body = (parts.length > 1 ? parts.slice(0, -1) : parts).join('');
+  if (!body) return 0;
+  const freq = new Map<string, number>();
+  for (const ch of body) freq.set(ch, (freq.get(ch) || 0) + 1);
+  let h = 0;
+  freq.forEach((n) => {
+    const p = n / body.length;
+    h -= p * Math.log2(p);
+  });
+  return h;
+};
+
+const scriptOf = (code: number): string => {
+  if (code >= 0x0400 && code <= 0x04ff) return 'CYRILLIC';
+  if (code >= 0x0370 && code <= 0x03ff) return 'GREEK';
+  if (code >= 0x0530 && code <= 0x058f) return 'ARMENIAN';
+  return 'NON-ASCII';
+};
 
 export const PhishingDetectionPage: React.FC = () => {
   const [testDomain, setTestDomain] = useState<string>('pаypаl.com');
@@ -35,275 +55,244 @@ export const PhishingDetectionPage: React.FC = () => {
     }, 600);
   };
 
-  // Determine heuristic state based on domain
-  const isPunycode = testDomain.includes('а') || testDomain.startsWith('xn--');
-  const isSubdomainStack = testDomain.split('.').length > 3;
-  const isTyposquat = testDomain.includes('0') || testDomain.includes('-security');
-  const isSafe = testDomain === 'google.com' || testDomain === 'stripe.com';
+  // Determine heuristic state based on domain (case-insensitive)
+  const normalized = testDomain.trim().toLowerCase();
+  const hasNonAscii = /[^\x00-\x7f]/.test(normalized);
+  const isPunycode = hasNonAscii || normalized.startsWith('xn--') || normalized.includes('.xn--');
+  const isSubdomainStack = normalized.split('.').length > 3;
+  const isTyposquat = normalized.includes('0') || normalized.includes('-security');
+  const isSafe = normalized === 'google.com' || normalized === 'stripe.com';
 
   const riskScore = isSafe ? 98 : isPunycode ? 8 : isSubdomainStack ? 15 : 22;
 
+  const asciiHost = useMemo(() => toAsciiHost(normalized), [normalized]);
+  const entropy = useMemo(() => shannonEntropy(normalized), [normalized]);
+  const entropyBand = entropy >= 3.5 ? 'High' : entropy >= 2.8 ? 'Moderate' : 'Low';
+  const subdomainDepth = Math.max(0, normalized.split('.').length - 1);
+
+  const brand =
+    normalized.includes('paypal') || normalized.includes('pаypаl')
+      ? 'PayPal Inc. (Brand Confidence: 99.4%)'
+      : normalized.includes('microsoft')
+      ? 'Microsoft 365 (Enterprise Identity)'
+      : normalized.includes('g00gle') || normalized.includes('google')
+      ? 'Google (Consumer Identity)'
+      : 'No major brand keyword match';
+
+  const vectorRows: Array<{ name: string; detail: string; result: string; tone: 'bad' | 'warn' | 'ok' | 'info' }> = [
+    {
+      name: 'Target brand impersonation',
+      detail: brand,
+      result: normalized.includes('google.com') && isSafe ? 'Canonical' : brand.startsWith('No major') ? 'No match' : 'Target match',
+      tone: isSafe ? 'ok' : brand.startsWith('No major') ? 'info' : 'bad',
+    },
+    {
+      name: 'IDN homoglyph / punycode',
+      detail: isPunycode ? `Encoded form ${asciiHost ?? 'n/a'}` : 'Hostname is plain ASCII',
+      result: isPunycode ? 'Detected' : 'Not detected',
+      tone: isPunycode ? 'bad' : 'ok',
+    },
+    {
+      name: 'Shannon lexical entropy',
+      detail: 'High entropy can indicate algorithmic generation (DGA) or random token stuffing.',
+      result: `${entropy.toFixed(2)} bits/char (${entropyBand})`,
+      tone: entropyBand === 'High' ? 'warn' : 'ok',
+    },
+    {
+      name: 'Subdomain tree stacking',
+      detail: `Subdomain depth: ${subdomainDepth} levels.`,
+      result: isSubdomainStack ? 'High risk depth' : 'Normal',
+      tone: isSubdomainStack ? 'bad' : 'ok',
+    },
+    {
+      name: 'Typosquat character substitution',
+      detail: 'Digit-for-letter swaps or security-themed tokens.',
+      result: isTyposquat ? 'Pattern present' : 'Not detected',
+      tone: isTyposquat ? 'warn' : 'ok',
+    },
+  ];
+
+  const toneCls = { bad: 'text-sev-critical', warn: 'text-sev-medium', ok: 'text-sev-clean', info: 'text-soc-text-2' };
+
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
-      {/* Engine Overview Header */}
-      <div className="p-6 rounded-xl bg-[#090e1c] border border-cyan-500/20 shadow-[0_0_20px_rgba(6,182,212,0.05)]">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2">
-              <div className="p-2 rounded-lg bg-cyan-950/60 border border-cyan-500/30 text-cyan-400">
-                <Fish className="w-5 h-5" />
-              </div>
-              <h2 className="text-xl font-bold text-white tracking-tight">
-                AI &amp; Heuristic Phishing Detection Engine
-              </h2>
-            </div>
-            <p className="text-xs md:text-sm text-slate-400 mt-2 max-w-3xl leading-relaxed">
-              Detects internationalized domain name (IDN) homoglyph spoofing, high-entropy lexical tricks, brand impersonation, and deceptive subdomain trees.
-            </p>
-          </div>
-
-          <div className="px-3 py-1.5 rounded-lg bg-[#060a14] border border-slate-800 text-xs font-mono text-slate-400">
-            ENGINE STATUS: <span className="text-emerald-400 font-bold">READY</span>
-          </div>
-        </div>
-
-        {/* Input box */}
-        <div className="mt-6 flex flex-col sm:flex-row gap-2">
-          <div className="relative flex-1">
-            <input
-              type="text"
-              value={testDomain}
-              onChange={(e) => setTestDomain(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleRunEvaluation();
-              }}
-              placeholder="Test any domain (e.g., pаypаl.com or apple-security-portal.xyz)"
-              className="w-full bg-[#050811] border border-slate-800 rounded-lg px-4 py-3 text-sm font-mono text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400"
-            />
-          </div>
-
+    <div className="soc-page">
+      <PageHeader
+        icon={Fish}
+        title="AI & heuristic phishing detection engine"
+        description="Detects IDN homoglyph spoofing, high-entropy lexical tricks, brand impersonation and deceptive subdomain trees."
+        actions={
+          <span className="soc-chip">
+            Engine status <span className="font-semibold text-sev-clean">READY</span>
+          </span>
+        }
+      >
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <input
+            type="text"
+            value={testDomain}
+            onChange={(e) => setTestDomain(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleRunEvaluation();
+            }}
+            aria-label="Domain to analyze"
+            placeholder="Test any domain (e.g., pаypаl.com or apple-security-portal.xyz)"
+            className="soc-input h-10 flex-1 text-[13px]"
+          />
           <button
             onClick={() => handleRunEvaluation()}
             disabled={!testDomain.trim() || isEvaluating}
-            className="px-5 py-3 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-black font-semibold text-xs md:text-sm flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+            className="soc-btn soc-btn-primary h-10 px-4"
           >
-            <span>{isEvaluating ? 'Scanning Tokens...' : 'Analyze Phishing Risk'}</span>
-            <ArrowRight className="w-4 h-4" />
+            {isEvaluating ? 'Scanning tokens…' : 'Analyze phishing risk'}
+            <ArrowRight className="h-3.5 w-3.5" />
           </button>
         </div>
-
-        {/* Test Preset Buttons */}
-        <div className="flex flex-wrap items-center gap-2 mt-3 pt-3 border-t border-slate-800/80 text-xs">
-          <span className="text-slate-500 font-medium">Quick Test Vectors:</span>
+        <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+          <span className="soc-label mr-1">Quick test vectors</span>
           {testCases.map((tc) => (
             <button
               key={tc.value}
+              title={tc.desc}
               onClick={() => handleRunEvaluation(tc.value)}
-              className="px-2.5 py-1 rounded bg-[#070b16] hover:bg-[#121c38] border border-slate-800 hover:border-cyan-500/40 text-slate-300 font-mono text-[11px] transition-colors"
+              className="soc-chip hover:border-soc-forest-2 hover:text-soc-text"
             >
               {tc.label}
             </button>
           ))}
         </div>
-      </div>
+      </PageHeader>
 
-      {/* Evaluation Results */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column: Verdict & Visual Character Inspection */}
-        <div className="lg:col-span-2 space-y-6">
-          <div
-            className={`p-6 rounded-xl border ${
-              isSafe
-                ? 'bg-[#081510] border-emerald-500/40'
-                : 'bg-[#150a10] border-rose-500/40'
-            }`}
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <div className="space-y-4 xl:col-span-2">
+          <Panel
+            title="Target evaluation result"
+            accent={isSafe ? 'clean' : 'critical'}
+            actions={<DataTag kind="simulated" label="Demo simulation" />}
           >
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[11px] font-mono uppercase text-slate-400">
-                    Target Evaluation Result
-                  </span>
-                  <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-950/60 text-amber-300 border border-amber-500/40">
-                    DEMO SIMULATION
-                  </span>
-                </div>
-                <h3 className="text-xl md:text-2xl font-bold font-mono text-white mt-1 break-all">
-                  {testDomain}
-                </h3>
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div className="min-w-0">
+                <div className="soc-label">Evaluated hostname</div>
+                <h3 className="mt-0.5 break-all font-mono text-lg font-semibold text-soc-text">{testDomain}</h3>
+                {asciiHost && asciiHost !== normalized && (
+                  <div className="mt-0.5 font-mono text-[11px] text-soc-muted">
+                    ASCII / punycode: <span className="text-soc-text-2">{asciiHost}</span>
+                  </div>
+                )}
               </div>
-
-              <div className="text-right">
-                <span className="text-xs font-mono text-slate-400">Safety Confidence</span>
-                <div
-                  className={`text-2xl font-mono font-bold ${
-                    isSafe ? 'text-emerald-400' : 'text-rose-400'
-                  }`}
-                >
-                  {riskScore}/100
-                </div>
+              <div className="w-full md:w-80">
+                <SeverityBar score={riskScore} label="Safety confidence" />
               </div>
             </div>
 
-            {/* Character-by-Character Visual Lexical Inspector */}
-            <div className="mt-6 p-4 rounded-lg bg-black/60 border border-slate-800 space-y-3">
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-mono text-slate-400 uppercase text-[11px]">
-                  Lexical Character Tokenization
-                </span>
-                <span className="text-xs font-mono text-cyan-400">
-                  Unicode Codepoint Inspection
-                </span>
+            <div className="soc-well mt-4 p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="soc-label">Lexical character tokenization</span>
+                <span className="soc-label">Unicode codepoint inspection</span>
               </div>
-
-              <div className="flex flex-wrap gap-2 pt-1 font-mono text-sm">
-                {testDomain.split('').map((char, index) => {
-                  const code = char.charCodeAt(0);
-                  const isSuspicious = code > 127; // Non-ASCII homoglyph
+              <div className="flex flex-wrap gap-1.5 font-mono">
+                {Array.from(testDomain).map((char, index) => {
+                  const code = char.codePointAt(0) ?? 0;
+                  const isSuspicious = code > 127; // Non-ASCII homoglyph candidate
                   return (
                     <div
                       key={index}
-                      className={`flex flex-col items-center p-2 rounded border ${
+                      className={`flex min-w-[42px] flex-col items-center rounded border px-1.5 py-1 ${
                         isSuspicious
-                          ? 'bg-rose-950/80 border-rose-500 text-rose-300 shadow-[0_0_10px_rgba(244,63,94,0.4)]'
-                          : 'bg-slate-900 border-slate-800 text-slate-200'
+                          ? 'border-sev-critical/60 bg-sev-critical/10 text-sev-critical'
+                          : 'border-soc-line bg-soc-raised text-soc-text'
                       }`}
                     >
-                      <span className="text-lg font-bold">{char}</span>
-                      <span className="text-[10px] text-slate-400 mt-1">
-                        U+{code.toString(16).toUpperCase().padStart(4, '0')}
-                      </span>
-                      {isSuspicious && (
-                        <span className="text-[9px] text-rose-400 font-semibold mt-0.5">
-                          CYRILLIC
-                        </span>
-                      )}
+                      <span className="text-base font-semibold leading-5">{char}</span>
+                      <span className="text-[9.5px] text-soc-muted">U+{code.toString(16).toUpperCase().padStart(4, '0')}</span>
+                      {isSuspicious && <span className="text-[8.5px] font-semibold tracking-wider">{scriptOf(code)}</span>}
                     </div>
                   );
                 })}
               </div>
 
               {isPunycode && (
-                <div className="p-3 rounded bg-rose-950/40 border border-rose-500/30 text-rose-300 text-xs mt-3 flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-                  <div>
-                    <span className="font-bold">HOMOGLYPH SPOOF DETECTED: </span>
-                    <span>
-                      This domain uses non-Latin Cyrillic characters visually indistinguishable from standard ASCII to deceive human eyes. Resolves to Punycode:{' '}
-                      <code className="text-cyan-300 bg-black/50 px-1 py-0.5 rounded">xn--pyp-6cd.com</code>.
-                    </span>
-                  </div>
-                </div>
+                <Notice tone="danger" icon={AlertTriangle} title="Homoglyph spoof detected" className="mt-3">
+                  This domain uses non-Latin characters visually indistinguishable from standard ASCII to deceive human
+                  eyes. Encoded punycode form:{' '}
+                  <code className="rounded bg-soc-well px-1 py-0.5 font-mono text-soc-text">{asciiHost ?? 'unavailable'}</code>.
+                </Notice>
               )}
             </div>
-          </div>
+          </Panel>
 
-          {/* Phishing Vector Diagnostics */}
-          <div className="p-6 rounded-xl bg-[#090e1c] border border-slate-800 space-y-4">
-            <h4 className="text-sm font-bold text-white tracking-wide uppercase font-mono">
-              Phishing Vector Breakdown
-            </h4>
-
-            <div className="space-y-3 text-xs">
-              <div className="p-3.5 rounded-lg bg-[#060a14] border border-slate-800 flex items-center justify-between">
-                <div>
-                  <span className="font-bold text-white">Target Brand Impersonation</span>
-                  <p className="text-slate-400 text-[11px] mt-0.5">
-                    {testDomain.includes('paypal') || testDomain.includes('pаypаl')
-                      ? 'PayPal Inc. (Brand Confidence: 99.4%)'
-                      : testDomain.includes('microsoft')
-                      ? 'Microsoft 365 (Enterprise Identity)'
-                      : 'No major brand keyword match'}
-                  </p>
-                </div>
-                <span className="font-mono text-cyan-400 font-bold">
-                  {testDomain.includes('google.com') ? 'Canonical' : 'Target Match'}
-                </span>
-              </div>
-
-              <div className="p-3.5 rounded-lg bg-[#060a14] border border-slate-800 flex items-center justify-between">
-                <div>
-                  <span className="font-bold text-white">Shannon Lexical Entropy</span>
-                  <p className="text-slate-400 text-[11px] mt-0.5">
-                    High entropy indicates algorithmic domain generation (DGA) or random token stuffing.
-                  </p>
-                </div>
-                <span className="font-mono text-white font-bold">3.84 / 5.0 (High)</span>
-              </div>
-
-              <div className="p-3.5 rounded-lg bg-[#060a14] border border-slate-800 flex items-center justify-between">
-                <div>
-                  <span className="font-bold text-white">Subdomain Tree Stacking</span>
-                  <p className="text-slate-400 text-[11px] mt-0.5">
-                    Subdomain depth: {testDomain.split('.').length - 1} levels.
-                  </p>
-                </div>
-                <span
-                  className={`font-mono font-bold ${
-                    isSubdomainStack ? 'text-rose-400' : 'text-emerald-400'
-                  }`}
-                >
-                  {isSubdomainStack ? 'High Risk Depth' : 'Normal'}
-                </span>
-              </div>
+          <Panel title="Phishing vector breakdown" icon={ListChecks} flush>
+            <div className="overflow-x-auto">
+              <table className="soc-table">
+                <thead>
+                  <tr>
+                    <th>Vector</th>
+                    <th>Detail</th>
+                    <th className="text-right">Result</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {vectorRows.map((row) => (
+                    <tr key={row.name}>
+                      <td className="whitespace-nowrap font-medium text-soc-text">{row.name}</td>
+                      <td className="text-[11px]">{row.detail}</td>
+                      <td className={`whitespace-nowrap text-right font-mono text-[11px] font-semibold ${toneCls[row.tone]}`}>{row.result}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          </div>
+          </Panel>
         </div>
 
-        {/* Right Column: Known Threat Blacklists & Heuristics Matrix */}
-        <div className="space-y-6">
-          <div className="p-6 rounded-xl bg-[#090e1c] border border-slate-800 space-y-4">
-            <h4 className="text-sm font-bold text-white tracking-wide uppercase font-mono">
-              Threat Intelligence Feeds
-            </h4>
-            <p className="text-xs text-slate-400">
-              Aggregated simulated blacklist status across global feeds:
+        <div className="space-y-4">
+          <Panel title="Threat intelligence feeds" subtitle="Aggregated blacklist status" actions={<DataTag kind="simulated" />} flush>
+            <table className="soc-table">
+              <tbody>
+                {[
+                  { name: 'Google Safe Browsing', flagged: !isSafe },
+                  { name: 'PhishTank Database', flagged: !isSafe },
+                  { name: 'Spamhaus DBL', flagged: !isSafe },
+                  { name: 'URLhaus Abuse CH', flagged: !isSafe },
+                  { name: 'OpenPhish Real-time', flagged: !isSafe },
+                ].map((feed) => (
+                  <tr key={feed.name}>
+                    <td className="font-mono text-soc-text-2">{feed.name}</td>
+                    <td className="text-right">
+                      {feed.flagged ? (
+                        <span className="rounded-[3px] border border-sev-critical/35 bg-sev-critical/10 px-1.5 py-[1px] font-mono text-[10px] font-semibold text-sev-critical">
+                          FLAGGED
+                        </span>
+                      ) : (
+                        <span className="rounded-[3px] border border-sev-clean/35 bg-sev-clean/10 px-1.5 py-[1px] font-mono text-[10px] font-semibold text-sev-clean">
+                          CLEAN
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="border-t border-soc-line px-4 py-2 text-[11px] text-soc-muted">
+              Feed statuses on this page are simulated and are not queried live.
             </p>
+          </Panel>
 
-            <div className="space-y-2.5 text-xs font-mono">
+          <Panel title="Recommended countermeasures" icon={ShieldCheck}>
+            <ol className="space-y-2 text-xs text-soc-text-2">
               {[
-                { name: 'Google Safe Browsing', flagged: !isSafe },
-                { name: 'PhishTank Database', flagged: !isSafe },
-                { name: 'Spamhaus DBL', flagged: !isSafe },
-                { name: 'URLhaus Abuse CH', flagged: !isSafe },
-                { name: 'OpenPhish Real-time', flagged: !isSafe },
-              ].map((feed) => (
-                <div
-                  key={feed.name}
-                  className="p-2.5 rounded-lg bg-[#060a14] border border-slate-800 flex items-center justify-between"
-                >
-                  <span className="text-slate-300">{feed.name}</span>
-                  {feed.flagged ? (
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-950/60 text-rose-300 border border-rose-500/30">
-                      FLAGGED
-                    </span>
-                  ) : (
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-950/60 text-emerald-300 border border-emerald-500/30">
-                      CLEAN
-                    </span>
-                  )}
-                </div>
+                'Push DNS sinkhole policy across corporate perimeter gateways.',
+                'Submit takedown request to registrar abuse contact.',
+                'Anchor forensic fingerprint to Sentinel Blockchain ledger.',
+              ].map((t, i) => (
+                <li key={t} className="flex items-start gap-2.5">
+                  <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border border-soc-forest-2 bg-soc-forest/60 font-mono text-[10px] text-soc-accent-hi">
+                    {i + 1}
+                  </span>
+                  <span>{t}</span>
+                </li>
               ))}
-            </div>
-          </div>
-
-          <div className="p-6 rounded-xl bg-[#090e1c] border border-slate-800 space-y-3">
-            <h4 className="text-sm font-bold text-white">Recommended Countermeasures</h4>
-            <ul className="space-y-2 text-xs text-slate-300">
-              <li className="flex items-start gap-2">
-                <span className="text-cyan-400 font-bold">1.</span>
-                <span>Push DNS sinkhole policy across corporate perimeter gateways.</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-cyan-400 font-bold">2.</span>
-                <span>Submit takedown request to registrar abuse contact.</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <span className="text-cyan-400 font-bold">3.</span>
-                <span>Anchor forensic fingerprint to Sentinel Blockchain ledger.</span>
-              </li>
-            </ul>
-          </div>
+            </ol>
+          </Panel>
         </div>
       </div>
     </div>

@@ -2,39 +2,367 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/*
+ * SENTINEL AI — SOC design system
+ * Deep charcoal surfaces, forest-green structure, restrained emerald accent.
+ * Severity colours are dedicated tokens (sev-*) and never reused as decoration.
+ */
 @theme {
-  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  --color-soc-bg: #050811;
-  --color-soc-surface: #0a0f1d;
-  --color-soc-card: #0e1526;
-  --color-soc-card-hover: #131d35;
-  --color-soc-border: rgba(30, 41, 59, 0.7);
-  --color-soc-cyan: #06b6d4;
-  --color-soc-blue: #3b82f6;
-  --color-soc-emerald: #10b981;
-  --color-soc-amber: #f59e0b;
-  --color-soc-rose: #f43f5e;
+  --font-sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* Surfaces */
+  --color-soc-bg: #0A0E0D;
+  --color-soc-surface: #0D1311;
+  --color-soc-panel: #111816;
+  --color-soc-raised: #161F1C;
+  --color-soc-well: #0B100F;
+  --color-soc-line: #1D2925;
+  --color-soc-line-strong: #2A3A34;
+
+  /* Text */
+  --color-soc-text: #E2E8E5;
+  --color-soc-text-2: #A9B6B0;
+  --color-soc-muted: #6F7F78;
+
+  /* Brand: forest + emerald */
+  --color-soc-forest: #1C4535;
+  --color-soc-forest-2: #275E48;
+  --color-soc-accent: #3BA97A;
+  --color-soc-accent-hi: #55C392;
+  --color-soc-accent-ink: #06130D;
+
+  /* Legacy token names kept for compatibility */
+  --color-soc-card: #111816;
+  --color-soc-card-hover: #161F1C;
+  --color-soc-border: #1D2925;
+  --color-soc-cyan: #3BA97A;
+  --color-soc-blue: #275E48;
+  --color-soc-emerald: #55C392;
+  --color-soc-amber: #D9A93A;
+  --color-soc-rose: #E5484D;
+
+  /* Severity scale */
+  --color-sev-critical: #E5484D;
+  --color-sev-high: #EE7D3B;
+  --color-sev-medium: #D9A93A;
+  --color-sev-low: #5B9BD5;
+  --color-sev-clean: #3BA97A;
+  --color-sev-info: #8A9A93;
+
+  /* Neutral remap: any remaining slate-* utility picks up charcoal-green neutrals */
+  --color-slate-50: #F1F4F3;
+  --color-slate-100: #E2E8E5;
+  --color-slate-200: #C9D2CE;
+  --color-slate-300: #A9B6B0;
+  --color-slate-400: #8A9993;
+  --color-slate-500: #6F7F78;
+  --color-slate-600: #4C5A55;
+  --color-slate-700: #2A3A34;
+  --color-slate-800: #1D2925;
+  --color-slate-900: #111816;
+  --color-slate-950: #0A0E0D;
+
+  /* Accent remaps: cyan/blue utilities resolve to the emerald / steel palette */
+  --color-cyan-200: #B7E4CF;
+  --color-cyan-300: #84D0AC;
+  --color-cyan-400: #55C392;
+  --color-cyan-500: #3BA97A;
+  --color-cyan-600: #2E8C64;
+  --color-cyan-900: #173A2C;
+  --color-cyan-950: #10271E;
+  --color-blue-400: #7DB3E0;
+  --color-blue-500: #5B9BD5;
+  --color-blue-600: #3F7DB8;
+  --color-blue-950: #0F1C27;
+  --color-emerald-300: #84D0AC;
+  --color-emerald-400: #55C392;
+  --color-emerald-500: #3BA97A;
+  --color-emerald-950: #0E2219;
 }
 
-body {
-  font-family: var(--font-sans);
-  background-color: #050811;
-  color: #f1f5f9;
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+  body {
+    font-family: var(--font-sans);
+    background-color: var(--color-soc-bg);
+    color: var(--color-soc-text);
+    font-feature-settings: 'tnum' 1;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--color-soc-accent) 30%, transparent);
+    color: var(--color-soc-text);
+  }
+  :focus-visible {
+    outline: 1px solid var(--color-soc-accent);
+    outline-offset: 1px;
+  }
 }
 
-/* Custom dark SOC scrollbar */
+/* ---------- Layout primitives ---------- */
+@utility soc-page {
+  width: 100%;
+  max-width: 1600px;
+  margin-inline: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+@utility soc-panel {
+  background-color: var(--color-soc-panel);
+  border: 1px solid var(--color-soc-line);
+  border-radius: 6px;
+}
+
+@utility soc-well {
+  background-color: var(--color-soc-well);
+  border: 1px solid var(--color-soc-line);
+  border-radius: 4px;
+}
+
+@utility soc-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 14px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-soc-muted);
+}
+
+@utility soc-title {
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-soc-text);
+}
+
+/* ---------- Controls ---------- */
+@utility soc-input {
+  width: 100%;
+  background-color: var(--color-soc-well);
+  border: 1px solid var(--color-soc-line-strong);
+  border-radius: 4px;
+  padding: 0.5rem 0.75rem;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-soc-text);
+  transition: border-color 120ms ease;
+  &::placeholder {
+    color: var(--color-soc-muted);
+  }
+  &:focus {
+    outline: none;
+    border-color: var(--color-soc-accent);
+  }
+}
+
+@utility soc-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.375rem;
+  height: 2rem;
+  padding-inline: 0.75rem;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  border: 1px solid var(--color-soc-line-strong);
+  background-color: var(--color-soc-raised);
+  color: var(--color-soc-text);
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+  &:hover {
+    border-color: var(--color-soc-forest-2);
+    background-color: color-mix(in oklab, var(--color-soc-forest) 45%, var(--color-soc-raised));
+  }
+  &:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+}
+
+@utility soc-btn-primary {
+  background-color: var(--color-soc-accent);
+  border-color: var(--color-soc-accent);
+  color: var(--color-soc-accent-ink);
+  font-weight: 600;
+  &:hover {
+    background-color: var(--color-soc-accent-hi);
+    border-color: var(--color-soc-accent-hi);
+    color: var(--color-soc-accent-ink);
+  }
+}
+
+@utility soc-btn-ghost {
+  background-color: transparent;
+  border-color: transparent;
+  color: var(--color-soc-text-2);
+  &:hover {
+    background-color: var(--color-soc-raised);
+    border-color: var(--color-soc-line);
+    color: var(--color-soc-text);
+  }
+}
+
+@utility soc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0.4rem;
+  border-radius: 3px;
+  border: 1px solid var(--color-soc-line-strong);
+  background-color: var(--color-soc-raised);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 15px;
+  color: var(--color-soc-text-2);
+  white-space: nowrap;
+}
+
+/* Segmented control: parent .soc-seg, children .soc-seg-item with data-active="true" */
+@utility soc-seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 5px;
+  border: 1px solid var(--color-soc-line);
+  background-color: var(--color-soc-well);
+}
+
+@utility soc-seg-item {
+  padding: 0.25rem 0.6rem;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-soc-text-2);
+  white-space: nowrap;
+  border: 1px solid transparent;
+  transition: background-color 120ms ease, color 120ms ease;
+  &:hover {
+    color: var(--color-soc-text);
+  }
+  &[data-active='true'] {
+    background-color: var(--color-soc-forest);
+    border-color: var(--color-soc-forest-2);
+    color: var(--color-soc-text);
+  }
+}
+
+/* Underline tab bar */
+@utility soc-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.6rem 0.75rem;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-soc-text-2);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  white-space: nowrap;
+  &:hover {
+    color: var(--color-soc-text);
+  }
+  &[data-active='true'] {
+    color: var(--color-soc-text);
+    border-bottom-color: var(--color-soc-accent);
+  }
+}
+
+/* ---------- Data tables ---------- */
+@utility soc-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12px;
+  text-align: left;
+  color: var(--color-soc-text-2);
+  & thead th {
+    position: sticky;
+    top: 0;
+    background-color: var(--color-soc-surface);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-soc-muted);
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--color-soc-line);
+    white-space: nowrap;
+  }
+  & tbody td {
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--color-soc-line);
+    vertical-align: middle;
+  }
+  & tbody tr:last-child td {
+    border-bottom: 0;
+  }
+  & tbody tr:hover td {
+    background-color: var(--color-soc-raised);
+  }
+}
+
+/* Key/value definition rows */
+@utility soc-kv {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-block: 0.4rem;
+  border-bottom: 1px dashed var(--color-soc-line);
+  font-size: 12px;
+  &:last-child {
+    border-bottom: 0;
+  }
+}
+
+/* Scrollbars */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: #070b14;
+  background: var(--color-soc-bg);
 }
 ::-webkit-scrollbar-thumb {
-  background: #1e293b;
-  border-radius: 3px;
+  background: var(--color-soc-line-strong);
+  border-radius: 4px;
+  border: 2px solid var(--color-soc-bg);
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #334155;
+  background: var(--color-soc-forest-2);
+}
+
+@keyframes soc-scan {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+.soc-indeterminate {
+  animation: soc-scan 1.4s ease-in-out infinite;
+}
+
+@media print {
+  body {
+    background: #ffffff;
+    color: #111111;
+  }
+}
+
+/* Printable report document: render as dark-on-white regardless of theme */
+@media print {
+  .soc-print-doc,
+  .soc-print-doc * {
+    color: #111111 !important;
+    background: transparent !important;
+    border-color: #cfcfcf !important;
+    box-shadow: none !important;
+  }
 }

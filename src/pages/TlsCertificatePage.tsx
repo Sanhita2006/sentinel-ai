@@ -1,19 +1,7 @@
 import React, { useState } from 'react';
-import {
-  Lock,
-  ShieldCheck,
-  ShieldAlert,
-  AlertTriangle,
-  Key,
-  Layers,
-  Calendar,
-  CheckCircle2,
-  XCircle,
-  Copy,
-  ExternalLink,
-  Search,
-} from 'lucide-react';
+import { Lock, AlertTriangle, CheckCircle2, XCircle, Copy, ShieldAlert, KeyRound } from 'lucide-react';
 import { SAMPLE_TLS_CERTIFICATE } from '../data/mockData';
+import { PageHeader, Panel, DataTag, KV, Notice } from '../components/ui/Soc';
 
 export const TlsCertificatePage: React.FC = () => {
   const [selectedPreset, setSelectedPreset] = useState<'zerossl' | 'stripe' | 'expired'>('zerossl');
@@ -83,264 +71,185 @@ export const TlsCertificatePage: React.FC = () => {
 
   const activeCert = certificates[selectedPreset];
 
+  const isUntrustedRoot = selectedPreset === 'expired';
+  const verdictTone =
+    selectedPreset === 'stripe' ? 'text-sev-clean' : selectedPreset === 'expired' ? 'text-sev-critical' : 'text-sev-medium';
+  const accent = selectedPreset === 'stripe' ? 'clean' : selectedPreset === 'expired' ? 'critical' : 'medium';
+
+  const presets: Array<{ id: 'zerossl' | 'stripe' | 'expired'; label: string; domain: string }> = [
+    { id: 'zerossl', label: 'ZeroSSL Phish', domain: 'secure-login-chase-update.info' },
+    { id: 'stripe', label: 'Stripe EV (Secure)', domain: 'stripe.com' },
+    { id: 'expired', label: 'Expired / Legacy', domain: 'outdated-admin-portal.internal-corp.net' },
+  ];
+
+  const chain = [
+    {
+      level: 'Level 1 · Root certificate authority (trust anchor)',
+      name: activeCert.rootCa,
+      status: isUntrustedRoot ? 'Not in root store' : 'Root store verified',
+      ok: !isUntrustedRoot,
+    },
+    {
+      level: 'Level 2 · Intermediate issuing CA',
+      name: activeCert.intermediateCa,
+      status: activeCert.intermediateCa.toLowerCase().startsWith('none') ? 'Not present' : 'Chained',
+      ok: !activeCert.intermediateCa.toLowerCase().startsWith('none'),
+    },
+    {
+      level: 'Level 3 · Server leaf certificate',
+      name: activeCert.subject,
+      status:
+        activeCert.daysRemaining > 0
+          ? `${activeCert.daysRemaining} days remaining`
+          : `Expired (${Math.abs(activeCert.daysRemaining)} days ago)`,
+      ok: activeCert.daysRemaining > 0,
+    },
+  ];
+
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="p-6 rounded-xl bg-[#090e1c] border border-cyan-500/20 shadow-[0_0_20px_rgba(6,182,212,0.05)]">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2">
-              <div className="p-2 rounded-lg bg-cyan-950/60 border border-cyan-500/30 text-cyan-400">
-                <Lock className="w-5 h-5" />
-              </div>
-              <h2 className="text-xl font-bold text-white tracking-tight">
-                TLS / SSL Certificate Intelligence
-              </h2>
-            </div>
-            <p className="text-xs md:text-sm text-slate-400 mt-2 max-w-3xl leading-relaxed">
-              Inspect cryptographic trust chains, cipher suites, Certificate Transparency (CT) logs, and detect rogue certificates or SSL-stripping setups.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-amber-950/60 text-amber-300 border border-amber-500/40">
-              DEMO TELEMETRY
-            </span>
-          </div>
-        </div>
-
-        {/* Domain Search & Preset Selector */}
-        <div className="mt-5 pt-4 border-t border-slate-800/80 flex flex-col sm:flex-row gap-3">
-          <form onSubmit={handleDomainSubmit} className="relative flex-1">
+    <div className="soc-page">
+      <PageHeader
+        icon={Lock}
+        title="TLS / SSL certificate intelligence"
+        description="Inspect cryptographic trust chains, cipher suites and Certificate Transparency logs; detect rogue certificates and SSL-stripping setups."
+        actions={<DataTag kind="demo" label="Demo telemetry" />}
+      >
+        <div className="flex flex-col gap-2 lg:flex-row">
+          <form onSubmit={handleDomainSubmit} className="flex flex-1 gap-2">
             <input
               type="text"
               value={queryDomain}
               onChange={(e) => setQueryDomain(e.target.value)}
-              placeholder="Enter domain to inspect TLS certificate (e.g. stripe.com, chase-update.info)..."
-              className="w-full bg-[#050811] border border-slate-800 rounded-lg px-4 py-2.5 text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400"
+              aria-label="Domain to inspect"
+              placeholder="Enter domain to inspect TLS certificate (e.g. stripe.com, chase-update.info)…"
+              className="soc-input h-9 flex-1"
             />
+            <button type="submit" className="soc-btn soc-btn-primary h-9">
+              Inspect
+            </button>
           </form>
-
-          {/* Quick Preset Selector */}
-          <div className="flex items-center gap-1.5 p-1 bg-[#050811] rounded-lg border border-slate-800 text-xs shrink-0 overflow-x-auto">
-            <button
-              onClick={() => {
-                setSelectedPreset('zerossl');
-                setQueryDomain('secure-login-chase-update.info');
-              }}
-              className={`px-3 py-1.5 rounded-md font-medium transition-colors whitespace-nowrap ${
-                selectedPreset === 'zerossl'
-                  ? 'bg-amber-950/60 text-amber-300 border border-amber-500/40'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              ZeroSSL Phish
-            </button>
-            <button
-              onClick={() => {
-                setSelectedPreset('stripe');
-                setQueryDomain('stripe.com');
-              }}
-              className={`px-3 py-1.5 rounded-md font-medium transition-colors whitespace-nowrap ${
-                selectedPreset === 'stripe'
-                  ? 'bg-emerald-950/60 text-emerald-300 border border-emerald-500/40'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Stripe EV (Secure)
-            </button>
-            <button
-              onClick={() => {
-                setSelectedPreset('expired');
-                setQueryDomain('outdated-admin-portal.internal-corp.net');
-              }}
-              className={`px-3 py-1.5 rounded-md font-medium transition-colors whitespace-nowrap ${
-                selectedPreset === 'expired'
-                  ? 'bg-rose-950/60 text-rose-300 border border-rose-500/40'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Expired / Legacy
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Target Status Card */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Certificate Chain Visualization */}
-        <div className="lg:col-span-2 p-6 rounded-xl bg-[#090e1c] border border-slate-800 space-y-6">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">
-              Cryptographic Trust Hierarchy
-            </h3>
-            <span className="text-xs font-mono text-cyan-400">X.509 v3 Chain</span>
-          </div>
-
-          {/* Visual 3-tier chain */}
-          <div className="space-y-4 relative">
-            {/* Tier 1: Root CA */}
-            <div className="p-4 rounded-lg bg-[#060a14] border border-slate-800 space-y-1 relative">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-mono uppercase text-slate-400 font-bold">
-                  Level 1 · Root Certificate Authority (Trust Anchor)
-                </span>
-                <span className="text-xs font-mono text-emerald-400 flex items-center gap-1">
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  Root Store Verified
-                </span>
-              </div>
-              <p className="text-sm font-mono font-bold text-white">{activeCert.rootCa}</p>
-            </div>
-
-            <div className="w-0.5 h-4 bg-cyan-500/40 mx-auto" />
-
-            {/* Tier 2: Intermediate CA */}
-            <div className="p-4 rounded-lg bg-[#060a14] border border-slate-800 space-y-1 relative">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-mono uppercase text-slate-400 font-bold">
-                  Level 2 · Intermediate Issuing CA
-                </span>
-                <span className="text-xs font-mono text-cyan-400">Cross-Signed</span>
-              </div>
-              <p className="text-sm font-mono font-bold text-cyan-200">{activeCert.intermediateCa}</p>
-            </div>
-
-            <div className="w-0.5 h-4 bg-cyan-500/40 mx-auto" />
-
-            {/* Tier 3: Leaf Certificate */}
-            <div
-              className={`p-4 rounded-lg border space-y-2 relative ${
-                selectedPreset === 'expired'
-                  ? 'bg-rose-950/20 border-rose-500/40'
-                  : 'bg-[#060a14] border-cyan-500/40'
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-mono uppercase text-slate-400 font-bold">
-                  Level 3 · Server Leaf Certificate
-                </span>
-                <span
-                  className={`text-xs font-mono font-bold ${
-                    activeCert.daysRemaining > 0 ? 'text-emerald-400' : 'text-rose-400'
-                  }`}
-                >
-                  {activeCert.daysRemaining > 0
-                    ? `${activeCert.daysRemaining} Days Remaining`
-                    : `Expired (${Math.abs(activeCert.daysRemaining)} Days Ago)`}
-                </span>
-              </div>
-              <p className="text-sm font-mono font-bold text-white break-all">{activeCert.subject}</p>
-              <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400 pt-1 font-mono">
-                <span>Sig: {activeCert.signatureAlgorithm}</span>
-                <span>·</span>
-                <span>Serial: {activeCert.serialNumber}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Cipher Suites & Protocols */}
-          <div className="p-4 rounded-lg bg-[#060a14] border border-slate-800 space-y-3">
-            <h4 className="text-xs font-bold text-white uppercase font-mono tracking-wider">
-              Cryptographic Parameters &amp; Ciphers
-            </h4>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs font-mono">
-              <div>
-                <span className="text-slate-400 text-[11px]">Negotiated Protocol:</span>
-                <p className="text-white font-semibold mt-0.5">{activeCert.protocol}</p>
-              </div>
-              <div>
-                <span className="text-slate-400 text-[11px]">Active Cipher Suite:</span>
-                <p className="text-cyan-300 font-semibold mt-0.5 break-all">{activeCert.ciphers}</p>
-              </div>
-              <div>
-                <span className="text-slate-400 text-[11px]">OCSP Stapling:</span>
-                <p
-                  className={`font-semibold mt-0.5 ${
-                    activeCert.ocspStapling ? 'text-emerald-400' : 'text-amber-400'
-                  }`}
-                >
-                  {activeCert.ocspStapling ? 'Enabled & Validated' : 'Disabled (Fallback to CRL)'}
-                </p>
-              </div>
-              <div>
-                <span className="text-slate-400 text-[11px]">CT Log Inclusion:</span>
-                <p
-                  className={`font-semibold mt-0.5 ${
-                    activeCert.ctLogVerified ? 'text-emerald-400' : 'text-rose-400'
-                  }`}
-                >
-                  {activeCert.ctLogVerified ? 'Logged in Google Argon / Cloudflare' : 'No Public CT Logs Found'}
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Right Column: Weaknesses & Telemetry summary */}
-        <div className="space-y-6">
-          <div className="p-6 rounded-xl bg-[#090e1c] border border-slate-800 space-y-4">
-            <h3 className="text-sm font-bold text-white uppercase tracking-wider font-mono">
-              Certificate Security Posture
-            </h3>
-
-            <div className="p-3.5 rounded-lg bg-[#060a14] border border-slate-800 space-y-1">
-              <span className="text-[10px] font-mono text-slate-400 uppercase">Assessment Verdict</span>
-              <p
-                className={`text-sm font-mono font-bold ${
-                  selectedPreset === 'stripe'
-                    ? 'text-emerald-400'
-                    : selectedPreset === 'expired'
-                    ? 'text-rose-400'
-                    : 'text-amber-400'
-                }`}
+          <div className="soc-seg shrink-0 overflow-x-auto" role="tablist" aria-label="Certificate presets">
+            {presets.map((p) => (
+              <button
+                key={p.id}
+                role="tab"
+                aria-selected={selectedPreset === p.id}
+                data-active={selectedPreset === p.id}
+                onClick={() => {
+                  setSelectedPreset(p.id);
+                  setQueryDomain(p.domain);
+                }}
+                className="soc-seg-item"
               >
-                {activeCert.trustVerdict}
-              </p>
-            </div>
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </PageHeader>
 
-            <div className="space-y-2">
-              <span className="text-xs font-semibold text-slate-300">Identified Vulnerabilities:</span>
-              {activeCert.weaknesses.length === 0 ? (
-                <div className="p-3 rounded-lg bg-emerald-950/30 border border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>No cryptographic flaws or insecure cipher suites detected.</span>
-                </div>
-              ) : (
-                <div className="space-y-1.5">
-                  {activeCert.weaknesses.map((w) => (
-                    <div
-                      key={w}
-                      className="p-2.5 rounded-lg bg-rose-950/30 border border-rose-500/30 text-rose-300 text-xs flex items-start gap-2"
-                    >
-                      <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0 mt-0.5" />
-                      <span>{w}</span>
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <div className="space-y-4 xl:col-span-2">
+          <Panel title="Cryptographic trust hierarchy" actions={<span className="soc-label">X.509 v3 chain</span>}>
+            <ol className="relative space-y-2">
+              {chain.map((node, i) => (
+                <li key={node.level} className="relative pl-6">
+                  {i < chain.length - 1 && <span className="absolute left-[7px] top-5 h-[calc(100%+0.5rem)] w-px bg-soc-line-strong" />}
+                  <span
+                    className={`absolute left-0 top-3 flex h-[15px] w-[15px] items-center justify-center rounded-full border ${
+                      node.ok ? 'border-sev-clean/60 bg-sev-clean/15' : 'border-sev-critical/60 bg-sev-critical/15'
+                    }`}
+                  >
+                    <span className={`h-1.5 w-1.5 rounded-full ${node.ok ? 'bg-sev-clean' : 'bg-sev-critical'}`} />
+                  </span>
+                  <div className={`soc-well p-3 ${i === 2 && !node.ok ? 'border-sev-critical/40' : ''}`}>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="soc-label">{node.level}</span>
+                      <span className={`flex items-center gap-1 font-mono text-[11px] font-medium ${node.ok ? 'text-sev-clean' : 'text-sev-critical'}`}>
+                        {node.ok ? <CheckCircle2 className="h-3.5 w-3.5" /> : <XCircle className="h-3.5 w-3.5" />}
+                        {node.status}
+                      </span>
                     </div>
+                    <p className="mt-1 break-all font-mono text-[13px] font-semibold text-soc-text">{node.name}</p>
+                    {i === 2 && (
+                      <div className="mt-1 flex flex-wrap gap-x-3 font-mono text-[11px] text-soc-muted">
+                        <span>sig {activeCert.signatureAlgorithm}</span>
+                        <span>serial {activeCert.serialNumber}</span>
+                      </div>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </Panel>
+
+          <Panel title="Cryptographic parameters & ciphers" icon={KeyRound}>
+            <div className="grid grid-cols-1 gap-x-8 md:grid-cols-2">
+              <div>
+                <KV k="Negotiated protocol" v={activeCert.protocol} />
+                <KV k="Active cipher suite" v={<span className="break-words">{activeCert.ciphers}</span>} />
+              </div>
+              <div>
+                <KV
+                  k="OCSP stapling"
+                  v={activeCert.ocspStapling ? 'Enabled & validated' : 'Disabled (fallback to CRL)'}
+                  vClassName={activeCert.ocspStapling ? 'text-sev-clean' : 'text-sev-medium'}
+                />
+                <KV
+                  k="CT log inclusion"
+                  v={activeCert.ctLogVerified ? 'Logged in Google Argon / Cloudflare' : 'No public CT logs found'}
+                  vClassName={activeCert.ctLogVerified ? 'text-sev-clean' : 'text-sev-critical'}
+                />
+              </div>
+            </div>
+          </Panel>
+        </div>
+
+        <div className="space-y-4">
+          <Panel title="Certificate security posture" icon={ShieldAlert} accent={accent}>
+            <div className="soc-label">Assessment verdict</div>
+            <p className={`mt-0.5 font-mono text-sm font-semibold ${verdictTone}`}>{activeCert.trustVerdict}</p>
+            <div className="mt-1 font-mono text-[11px] text-soc-muted">Target {activeCert.target}</div>
+
+            <div className="mt-4">
+              <div className="soc-label mb-1.5">Identified vulnerabilities ({activeCert.weaknesses.length})</div>
+              {activeCert.weaknesses.length === 0 ? (
+                <Notice tone="ok" icon={CheckCircle2}>
+                  No cryptographic flaws or insecure cipher suites detected.
+                </Notice>
+              ) : (
+                <ul className="space-y-1.5">
+                  {activeCert.weaknesses.map((w) => (
+                    <li key={w} className="flex items-start gap-2 rounded border border-sev-critical/30 bg-sev-critical/[0.06] px-2.5 py-2 text-xs text-soc-text-2">
+                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-sev-critical" />
+                      {w}
+                    </li>
                   ))}
-                </div>
+                </ul>
               )}
             </div>
+          </Panel>
 
-            <div className="pt-2 border-t border-slate-800 text-xs space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-mono text-slate-400 uppercase">Fingerprint SHA-256</span>
-                <button
-                  onClick={() => {
-                    navigator.clipboard?.writeText(activeCert.fingerprintSha256);
-                    setCopiedFingerprint(true);
-                    setTimeout(() => setCopiedFingerprint(false), 2000);
-                  }}
-                  className="text-[10px] font-mono text-cyan-400 hover:text-cyan-300 flex items-center gap-1 transition-colors"
-                >
-                  <Copy className="w-3 h-3" />
-                  {copiedFingerprint ? 'Copied!' : 'Copy'}
-                </button>
-              </div>
-              <p className="font-mono text-[10px] text-slate-300 break-all select-all p-2 rounded bg-[#060a14] border border-slate-800">
-                {activeCert.fingerprintSha256}
-              </p>
-            </div>
-          </div>
+          <Panel
+            title="Fingerprint"
+            subtitle="SHA-256"
+            actions={
+              <button
+                onClick={() => {
+                  navigator.clipboard?.writeText(activeCert.fingerprintSha256);
+                  setCopiedFingerprint(true);
+                  setTimeout(() => setCopiedFingerprint(false), 2000);
+                }}
+                className="soc-btn soc-btn-ghost h-7 text-[11px]"
+              >
+                <Copy className="h-3.5 w-3.5" />
+                {copiedFingerprint ? 'Copied' : 'Copy'}
+              </button>
+            }
+          >
+            <p className="select-all break-all font-mono text-[11px] leading-relaxed text-soc-text-2">{activeCert.fingerprintSha256}</p>
+          </Panel>
+
         </div>
       </div>
     </div>
