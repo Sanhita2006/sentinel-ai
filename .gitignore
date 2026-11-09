@@ -8,3 +8,5 @@ coverage/
 !.env.example
 
 src/server.env
+temp_replacement.py
+test.txt
